@@ -1,25 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".ScheduleFragment">
+    android:orientation="vertical"
+    android:background="@android:color/white">
 
-    <ImageView
-        android:id="@+id/schedule_image_1"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:layout_marginBottom="150dp"
-        android:contentDescription="@string/description_of_your_image"
-        android:src="@drawable/schedule_1" />
+    <!-- Simple header bar -->
+    <TextView
+        android:id="@+id/schedule_header"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:gravity="center"
+        android:text="Schedule"
+        android:textStyle="bold"
+        android:textSize="18sp"
+        android:textColor="#333333"
+        android:background="#E0E0E0" />
 
-    <ImageView
-        android:id="@+id/schedule_image_2"
-        android:layout_width="wrap_content"
+    <!-- Day-of-week tabs -->
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/scheduleTabs"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:layout_marginTop="175dp"
-        android:contentDescription="@string/description_of_your_image"
-        android:src="@drawable/schedule_2" />
-</FrameLayout>
+        app:tabIndicatorColor="?attr/colorPrimary"
+        app:tabSelectedTextColor="?attr/colorPrimary"
+        app:tabTextColor="#7A7A7A"
+        app:tabMode="scrollable" />
+
+    <!-- The list -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/scheduleRecycler"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingLeft="16dp"
+        android:paddingRight="16dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="12dp" />
+</LinearLayout>

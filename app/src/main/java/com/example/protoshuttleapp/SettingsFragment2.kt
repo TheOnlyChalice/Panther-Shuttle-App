@@ -1,11 +1,18 @@
-package com.example.protoshuttleapp
+package com.example.protoshuttleapp.ui
 
 import android.os.Bundle
-import androidx.preference.PreferenceFragmentCompat
+import android.view.View
+import androidx.fragment.app.Fragment
+import com.example.protoshuttleapp.R
 
-class SettingsFragment2 : PreferenceFragmentCompat() {
+/**
+ * Placeholder fragment. Not used by navigation right now.
+ * Exists only to avoid old PreferenceFragment errors.
+ */
+class SettingsFragment2 : Fragment(R.layout.fragment_settings) {
 
-    override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
-        setPreferencesFromResource(R.xml.root_preferences, rootKey)
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        // No-op: this fragment is just a stub
     }
 }

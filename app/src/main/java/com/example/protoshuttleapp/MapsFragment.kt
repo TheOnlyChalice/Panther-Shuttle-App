@@ -1,47 +1,122 @@
-package com.example.protoshuttleapp
+package com.example.protoshuttleapp.ui
 
-import androidx.fragment.app.Fragment
-
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
-import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
-
+import androidx.core.app.ActivityCompat
+import androidx.fragment.app.Fragment
+import com.example.protoshuttleapp.R
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
 
-class MapsFragment : Fragment() {
+class MapsFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
-    private val callback = OnMapReadyCallback { googleMap ->
-        /**
-         * Manipulates the map once available.
-         * This callback is triggered when the map is ready to be used.
-         * This is where we can add markers or lines, add listeners or move the camera.
-         * In this case, we just add a marker near Sydney, Australia.
-         * If Google Play services is not installed on the device, the user will be prompted to
-         * install it inside the SupportMapFragment. This method will only be triggered once the
-         * user has installed Google Play services and returned to the app.
-         */
-        val sydney = LatLng(-34.0, 151.0)
-        googleMap.addMarker(MarkerOptions().position(sydney).title("Marker in Sydney"))
-        googleMap.moveCamera(CameraUpdateFactory.newLatLng(sydney))
+    companion object {
+        private const val LOCATION_PERMISSION_REQUEST = 1001
     }
-    // test change
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View? {
-        return inflater.inflate(R.layout.navigation_maps, container, false)
-    }
+
+    private var googleMap: GoogleMap? = null
+    private var userMarker: Marker? = null
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        val mapFragment = childFragmentManager.findFragmentById(R.id.map) as SupportMapFragment?
-        mapFragment?.getMapAsync(callback)
+
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireContext())
+
+        // Find or create the SupportMapFragment inside the container
+        val existing = childFragmentManager.findFragmentById(R.id.map_container)
+        val mapFragment: SupportMapFragment = if (existing is SupportMapFragment) {
+            existing
+        } else {
+            val mf = SupportMapFragment.newInstance()
+            childFragmentManager.beginTransaction()
+                .replace(R.id.map_container, mf)
+                .commitNow()
+            mf
+        }
+
+        mapFragment.getMapAsync(this)
+    }
+
+    override fun onMapReady(map: GoogleMap) {
+        googleMap = map
+        googleMap?.uiSettings?.isZoomControlsEnabled = true
+        enableMyLocation()
+    }
+
+    private fun enableMyLocation() {
+        val ctx = requireContext()
+        val hasFine = ActivityCompat.checkSelfPermission(
+            ctx,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val hasCoarse = ActivityCompat.checkSelfPermission(
+            ctx,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!hasFine && !hasCoarse) {
+            requestPermissions(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                LOCATION_PERMISSION_REQUEST
+            )
+            return
+        }
+
+        try {
+            // This can throw SecurityException if permissions are weird, so we guard it
+            googleMap?.isMyLocationEnabled = true
+        } catch (_: SecurityException) {
+            // If something goes wrong, just skip the blue dot; don't crash
+        }
+
+        showCurrentLocationMarker()
+    }
+
+    private fun showCurrentLocationMarker() {
+        fusedLocationClient.lastLocation
+            .addOnSuccessListener { location ->
+                val map = googleMap ?: return@addOnSuccessListener
+                if (location != null) {
+                    val here = LatLng(location.latitude, location.longitude)
+
+                    if (userMarker == null) {
+                        userMarker = map.addMarker(
+                            MarkerOptions()
+                                .position(here)
+                                .title("You are here")
+                        )
+                    } else {
+                        userMarker!!.position = here
+                    }
+
+                    map.animateCamera(CameraUpdateFactory.newLatLngZoom(here, 16f))
+                }
+            }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == LOCATION_PERMISSION_REQUEST) {
+            if (grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED
+            ) {
+                enableMyLocation()
+            }
+        }
     }
 }

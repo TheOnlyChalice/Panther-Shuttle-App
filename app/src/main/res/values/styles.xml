@@ -1,0 +1,32 @@
+<resources>
+
+    <!-- Rounded shape used by components and the nav active indicator -->
+    <style name="Shape">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">16dp</item>
+    </style>
+
+    <!-- Alias if any resource references Shape.Medium -->
+    <style name="Shape.Medium" parent="Shape"/>
+
+    <!-- Default card style -->
+    <style name="Widget.Card.Default" parent="Widget.Material3.CardView.Elevated">
+        <item name="cardUseCompatPadding">true</item>
+        <item name="cardPreventCornerOverlap">true</item>
+    </style>
+
+    <!-- BottomNavigationView active indicator -->
+    <style name="Nav">
+        <item name="android:color">@color/fit_crimson</item>
+        <item name="android:alpha">0.10</item>
+        <item name="shapeAppearance">@style/Shape</item>
+    </style>
+
+    <!-- Optional alternate name -->
+    <style name="NavActiveIndicator">
+        <item name="android:color">@color/fit_crimson</item>
+        <item name="android:alpha">0.10</item>
+        <item name="shapeAppearance">@style/Shape</item>
+    </style>
+
+</resources>

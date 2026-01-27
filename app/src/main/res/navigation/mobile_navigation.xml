@@ -3,37 +3,41 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/mobile_navigation"
-    app:startDestination="@+id/navigation_home">
+    app:startDestination="@id/navigation_home">
 
+    <!-- Home fragment is in ui.home -->
     <fragment
         android:id="@+id/navigation_home"
         android:name="com.example.protoshuttleapp.ui.home.HomeFragment"
         android:label="@string/title_home"
         tools:layout="@layout/fragment_home" />
 
+    <!-- Map fragment is directly in ui -->
     <fragment
         android:id="@+id/navigation_map"
-        android:name="com.example.protoshuttleapp.MapsFragment"
+        android:name="com.example.protoshuttleapp.ui.MapsFragment"
         android:label="@string/title_map"
-        tools:layout="@layout/navigation_maps" /> <!-- Or @layout/navigation_maps if that's correct -->
+        tools:layout="@layout/fragment_map" />
 
+    <!-- Schedule fragment is in ui.schedule -->
     <fragment
         android:id="@+id/navigation_schedule"
-        android:name="com.example.protoshuttleapp.ScheduleFragment"
+        android:name="com.example.protoshuttleapp.ui.schedule.ScheduleFragment"
         android:label="@string/title_schedule"
         tools:layout="@layout/fragment_schedule" />
 
+    <!-- Notify fragment is in ui -->
     <fragment
         android:id="@+id/navigation_notify"
-        android:name="com.example.protoshuttleapp.NotifyFragment"
+        android:name="com.example.protoshuttleapp.ui.NotifyFragment"
         android:label="@string/title_notify"
         tools:layout="@layout/fragment_notify" />
 
+    <!-- Settings fragment is in ui (not a subpackage) -->
     <fragment
         android:id="@+id/navigation_settings"
-        android:name="com.example.protoshuttleapp.ui.dashboard.DashboardFragment"
-        tools:layout="@layout/fragment_dashboard" /> <!-- Consider renaming class to SettingsFragment if SettingsFragment3 is a typo -->
-    android:label="@string/title_settings"
-    tools:layout="@layout/fragment_settings" />
+        android:name="com.example.protoshuttleapp.ui.settings.SettingsFragment"
+        android:label="@string/title_settings"
+        tools:layout="@layout/fragment_settings" />
 
 </navigation>

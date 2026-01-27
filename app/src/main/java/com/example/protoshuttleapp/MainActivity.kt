@@ -1,39 +1,64 @@
-package com.example.protoshuttleapp
+package com.example.protoshuttleapp.ui
 
 import android.os.Bundle
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import androidx.appcompat.app.AppCompatActivity
-import androidx.navigation.findNavController
+import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.AppBarConfiguration
 import androidx.navigation.ui.setupActionBarWithNavController
 import androidx.navigation.ui.setupWithNavController
-import com.example.protoshuttleapp.databinding.ActivityMainBinding
+import com.example.protoshuttleapp.R
+import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.bottomnavigation.BottomNavigationView
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var binding: ActivityMainBinding
+    private lateinit var appBarConfiguration: AppBarConfiguration
+    private lateinit var bottomNav: BottomNavigationView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        val toolbar = findViewById<MaterialToolbar>(R.id.toolbar)
+        setSupportActionBar(toolbar)
 
-        val navView: BottomNavigationView = binding.navView
+        val navHostFragment =
+            supportFragmentManager.findFragmentById(R.id.nav_host_fragment_activity_main) as NavHostFragment
+        val navController = navHostFragment.navController
 
-        val navController = findNavController(R.id.nav_host_fragment_activity_main)
-        // Passing each menu ID as a set of Ids because each
-        // menu should be considered as top level destinations.
-        val appBarConfiguration = AppBarConfiguration(
+        bottomNav = findViewById(R.id.nav_view)
+        bottomNav.setupWithNavController(navController)
+
+        appBarConfiguration = AppBarConfiguration(
             setOf(
-                R.id.navigation_home, // Keep Home
-                R.id.navigation_map,    // <<< ADD THIS
-                R.id.navigation_schedule, // <<< ADD THIS
-                R.id.navigation_notify,   // <<< ADD THIS (or update if you reused navigation_notifications)
-                R.id.navigation_settings  // <<< ADD THIS
+                R.id.navigation_home,
+                R.id.navigation_map,
+                R.id.navigation_schedule,
+                R.id.navigation_notify,
+                R.id.navigation_settings
             )
         )
         setupActionBarWithNavController(navController, appBarConfiguration)
-        navView.setupWithNavController(navController)
+
+        // Initialize the notifications badge (may be 0)
+        updateNotificationBadge(NotificationStore.activeCount())
+    }
+
+    override fun onSupportNavigateUp(): Boolean {
+        val navHostFragment =
+            supportFragmentManager.findFragmentById(R.id.nav_host_fragment_activity_main) as NavHostFragment
+        val navController = navHostFragment.navController
+        return navController.navigateUp() || super.onSupportNavigateUp()
+    }
+
+    fun updateNotificationBadge(count: Int) {
+        val badge = bottomNav.getOrCreateBadge(R.id.navigation_notify)
+        if (count > 0) {
+            badge.isVisible = true
+            badge.number = count
+        } else {
+            badge.clearNumber()
+            badge.isVisible = false
+        }
     }
 }
