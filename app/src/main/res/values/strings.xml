@@ -19,7 +19,23 @@
     <!-- Notify / Placeholder -->
     <string name="large_text">Notifications and alerts will appear here.</string>
 
-    <!-- Settings (root_preferences.xml) -->
+    <!-- Settings screen -->
+    <string name="settings_section_general">General</string>
+    <string name="settings_default_stop">Default Stop</string>
+    <string name="settings_choose_stop">Choose a stop</string>
+
+    <string name="settings_units">Units</string>
+    <string name="settings_units_hint">Toggle between miles and kilometers.</string>
+    <string name="settings_units_miles">Miles</string>
+
+    <string name="settings_section_notifications">Notifications</string>
+    <string name="settings_service_alerts">Service Alerts</string>
+    <string name="settings_service_alerts_hint">Delays, outages, and service changes.</string>
+
+    <string name="settings_stop_approaching">Stop Approaching</string>
+    <string name="settings_stop_approaching_hint">Alert me when a stop is nearby.</string>
+
+    <!-- Settings (root_preferences.xml) - safe to keep -->
     <string name="messages_header">Messages</string>
     <string name="signature_title">Signature</string>
     <string name="reply_title">Quick reply</string>

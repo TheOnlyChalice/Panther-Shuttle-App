@@ -28,17 +28,38 @@ object ScheduleData {
         "3:00pm","3:30pm","4:00pm"
     )
 
+    // Stop cycle used by the schedule (and Settings dropdown)
     private val stopCycle = listOf("Campus", "Panther Bay", "Mary Star")
 
-    private fun buildList(times: List<String>): List<ScheduleStop> =
-        times.mapIndexed { i, t -> ScheduleStop(time = t, name = stopCycle[i % stopCycle.size]) }
+    /** Reuse these stop names in Settings */
+    fun stopNames(): List<String> = stopCycle
 
-    private val weekdayList by lazy { buildList(weekdayTimes) }
-    private val weekendList by lazy { buildList(weekendTimes) }
+    private fun buildList(times: List<String>): List<ScheduleStop> {
+        val result = ArrayList<ScheduleStop>(times.size)
+        for (i in times.indices) {
+            val stopName = stopCycle[i % stopCycle.size]
 
-    fun getFor(date: LocalDate): List<ScheduleStop> =
-        when (date.dayOfWeek) {
-            DayOfWeek.SATURDAY, DayOfWeek.SUNDAY -> weekendList
-            else -> weekdayList
+            // IMPORTANT: your ScheduleStop takes (time, name) not (time, location)
+            result.add(
+                ScheduleStop(
+                    time = times[i],
+                    name = stopName
+                )
+            )
         }
+        return result
+    }
+
+    /** Returns today's schedule (weekday vs weekend). */
+    fun forToday(): List<ScheduleStop> {
+        val dow = LocalDate.now().dayOfWeek
+        val isWeekend = (dow == DayOfWeek.SATURDAY || dow == DayOfWeek.SUNDAY)
+        return if (isWeekend) buildList(weekendTimes) else buildList(weekdayTimes)
+    }
+
+    /** Force a schedule for a specific day (handy for testing). */
+    fun forDay(dayOfWeek: DayOfWeek): List<ScheduleStop> {
+        val isWeekend = (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY)
+        return if (isWeekend) buildList(weekendTimes) else buildList(weekdayTimes)
+    }
 }
