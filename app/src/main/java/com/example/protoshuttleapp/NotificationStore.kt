@@ -1,25 +1,41 @@
 package com.example.protoshuttleapp.ui
 
+/**
+ * Simple in-memory notification store.
+ *
+ * Rules:
+ * - Dismissed notifications are removed forever (for this app run).
+ * - Notifications auto-expire after 24 hours.
+ *
+ * (If you want "forever even after app restarts", next step would be SharedPreferences/Room.)
+ */
 object NotificationStore {
 
-    private const val DAY_MILLIS = 24 * 60 * 60 * 1000L
+    private val items: MutableList<NotificationItem> = mutableListOf()
 
-    private val notifications = mutableListOf<NotificationItem>()
-
-    /** Remove >24h old and return active list. */
-    fun getActiveNotifications(): List<NotificationItem> {
-        val now = System.currentTimeMillis()
-        notifications.removeAll { now - it.timestamp >= DAY_MILLIS }
-        return notifications.toList()
+    fun add(item: NotificationItem) {
+        // newest first
+        items.add(0, item)
+        cleanup()
     }
 
-    fun addNotification(item: NotificationItem) {
-        notifications.add(0, item) // newest at top
+    fun dismiss(id: Long) {
+        items.find { it.id == id }?.dismissed = true
+        cleanup()
     }
 
-    fun dismissNotification(item: NotificationItem) {
-        notifications.removeAll { it.id == item.id }
+    fun allActive(): List<NotificationItem> {
+        cleanup()
+        return items.filter { !it.dismissed && !it.isExpired() }
     }
 
-    fun activeCount(): Int = getActiveNotifications().size
+    fun latestActive(limit: Int): List<NotificationItem> {
+        return allActive().take(limit)
+    }
+
+    fun activeCount(): Int = allActive().size
+
+    private fun cleanup() {
+        items.removeAll { it.dismissed || it.isExpired() }
+    }
 }
