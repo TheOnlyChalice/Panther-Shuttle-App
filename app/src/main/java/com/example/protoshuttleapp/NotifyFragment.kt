@@ -19,23 +19,26 @@ class NotifyFragment : Fragment(R.layout.fragment_notify) {
         super.onViewCreated(view, savedInstanceState)
 
         recycler = view.findViewById(R.id.notificationsRecycler)
-        recycler.layoutManager = LinearLayoutManager(requireContext())
 
-        // load active notifications (also cleans 24h)
+        // Load active notifications (also cleans >24h if your store does that)
         items.clear()
         items.addAll(NotificationStore.allActive())
 
         adapter = NotificationsAdapter(items) { item, position ->
-            // X clicked
+            // dismiss from store + remove from list
             NotificationStore.dismiss(item.id)
             adapter.removeAt(position)
+
             updateBadge()
         }
 
+        recycler.layoutManager = LinearLayoutManager(requireContext())
         recycler.adapter = adapter
+
+        // Initial badge
         updateBadge()
 
-        // Test notification after 15 seconds (remove later if you want)
+        // (Optional) test notification after 15s
         Handler(Looper.getMainLooper()).postDelayed({
             val test = NotificationItem(
                 title = "Test Notification",
