@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/driver_navigation"
+    app:startDestination="@id/driver_nav_map">
+
+    <fragment
+        android:id="@+id/driver_nav_map"
+        android:name="com.example.protoshuttleapp.ui.driver.DriverMapFragment"
+        android:label="Driver Map" />
+
+    <fragment
+        android:id="@+id/driver_nav_notify"
+        android:name="com.example.protoshuttleapp.ui.driver.DriverNotifyFragment"
+        android:label="Driver Notify" />
+
+    <fragment
+        android:id="@+id/driver_nav_settings"
+        android:name="com.example.protoshuttleapp.ui.driver.DriverSettingsFragment"
+        android:label="Driver Settings" />
+
+</navigation>

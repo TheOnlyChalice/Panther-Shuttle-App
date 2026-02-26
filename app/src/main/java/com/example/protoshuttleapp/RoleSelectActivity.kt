@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.example.protoshuttleapp.R
+import com.example.protoshuttleapp.ui.driver.DriverMainActivity
 import com.google.android.material.button.MaterialButton
 
 class RoleSelectActivity : AppCompatActivity() {
@@ -18,17 +19,14 @@ class RoleSelectActivity : AppCompatActivity() {
         val btnManager = findViewById<MaterialButton>(R.id.btnRoleManager)
 
         btnStudent.setOnClickListener {
-            // Student side = your current app
             startActivity(Intent(this, MainActivity::class.java))
         }
 
         btnDriver.setOnClickListener {
-            // Driver side = mock for now
-            startActivity(Intent(this, DriverActivity::class.java))
+            startActivity(Intent(this, DriverMainActivity::class.java))
         }
 
         btnManager.setOnClickListener {
-            // Does nothing for now (as requested)
             Toast.makeText(this, "Manager side coming soon.", Toast.LENGTH_SHORT).show()
         }
     }
