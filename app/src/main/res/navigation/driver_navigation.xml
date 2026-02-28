@@ -10,9 +10,9 @@
         android:label="Driver Map" />
 
     <fragment
-        android:id="@+id/driver_nav_notify"
+        android:id="@+id/driverNotifyFragment"
         android:name="com.example.protoshuttleapp.ui.driver.DriverNotifyFragment"
-        android:label="Driver Notify" />
+        android:label="Notify" />
 
     <fragment
         android:id="@+id/driver_nav_settings"

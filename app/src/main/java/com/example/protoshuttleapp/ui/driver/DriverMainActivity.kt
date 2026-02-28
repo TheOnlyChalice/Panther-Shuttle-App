@@ -5,11 +5,12 @@ import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
 import androidx.appcompat.app.AppCompatActivity
-import androidx.navigation.fragment.NavHostFragment
-import androidx.navigation.ui.setupWithNavController
 import com.example.protoshuttleapp.R
 import com.example.protoshuttleapp.ui.RoleSelectActivity
+import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import androidx.navigation.fragment.NavHostFragment
+import androidx.navigation.ui.setupWithNavController
 
 class DriverMainActivity : AppCompatActivity() {
 
@@ -17,10 +18,11 @@ class DriverMainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_driver_main)
 
-        val toolbar = findViewById<androidx.appcompat.widget.Toolbar>(R.id.toolbarDriver)
+        // Toolbar for 3-dot menu
+        val toolbar = findViewById<MaterialToolbar>(R.id.driverToolbar)
         setSupportActionBar(toolbar)
-        supportActionBar?.title = "Driver"
 
+        // NavHost + BottomNav
         val navHost =
             supportFragmentManager.findFragmentById(R.id.driver_nav_host_fragment) as NavHostFragment
         val navController = navHost.navController
@@ -30,7 +32,6 @@ class DriverMainActivity : AppCompatActivity() {
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        // Uses the same menu_main.xml you already have (Switch Role)
         menuInflater.inflate(R.menu.menu_driver, menu)
         return true
     }

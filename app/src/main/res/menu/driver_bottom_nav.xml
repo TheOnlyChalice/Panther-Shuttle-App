@@ -7,9 +7,9 @@
         android:title="Map" />
 
     <item
-        android:id="@+id/driver_nav_notify"
-        android:icon="@android:drawable/ic_dialog_email"
-        android:title="Notify" />
+        android:id="@+id/driverNotifyFragment"
+        android:title="Notify"
+        android:icon="@android:drawable/ic_dialog_info" />
 
     <item
         android:id="@+id/driver_nav_settings"
