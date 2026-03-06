@@ -10,34 +10,41 @@ import android.util.Log
 import android.view.View
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import com.example.protoshuttleapp.R
+import com.example.protoshuttleapp.data.FirebaseRepo
+import com.example.protoshuttleapp.data.LiveDriverLocationDoc
 import com.google.android.gms.location.*
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.SupportMapFragment
-import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
-import kotlin.math.abs
+import com.google.firebase.firestore.ListenerRegistration
+import kotlinx.coroutines.launch
 
 class MapsFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
     companion object {
         private const val TAG = "MapsFragment"
         private const val REQ = 1001
-        private const val ZOOM_ROAD = 18f
+        private const val ZOOM = 16.5f
     }
 
     private var map: GoogleMap? = null
     private lateinit var fused: FusedLocationProviderClient
 
     private var userMarker: Marker? = null
+    private var driverMarker: Marker? = null
+
     private var locationCallback: LocationCallback? = null
 
-    private var centeredOnce = false
-    private var followUser = true
+    private val firebase = FirebaseRepo()
+    private var liveListener: ListenerRegistration? = null
+
+    private var centeredOnDriverOnce = false
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -53,10 +60,43 @@ class MapsFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         googleMap.uiSettings.isMyLocationButtonEnabled = true
         googleMap.uiSettings.isCompassEnabled = true
 
-        enableOrRequest()
+        enableOrRequestUserLocation()
+        startListeningToDriver()
     }
 
-    private fun enableOrRequest() {
+    private fun startListeningToDriver() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val ok = firebase.ensureSignedIn()
+            if (!ok) {
+                Log.e(TAG, "Firebase offline; can't listen to driver location")
+                return@launch
+            }
+
+            liveListener?.remove()
+            liveListener = firebase.listenLiveDriverLocation(routeId = "main") { doc ->
+                if (doc?.loc == null) return@listenLiveDriverLocation
+                val googleMap = map ?: return@listenLiveDriverLocation
+
+                val pos = LatLng(doc.loc.latitude, doc.loc.longitude)
+
+                if (driverMarker == null) {
+                    driverMarker = googleMap.addMarker(
+                        MarkerOptions().position(pos).title("Driver")
+                    )
+                } else {
+                    animateMarker(driverMarker!!, pos)
+                }
+
+                // follow driver
+                if (!centeredOnDriverOnce) {
+                    centeredOnDriverOnce = true
+                    googleMap.animateCamera(CameraUpdateFactory.newLatLngZoom(pos, ZOOM))
+                }
+            }
+        }
+    }
+
+    private fun enableOrRequestUserLocation() {
         val granted = ContextCompat.checkSelfPermission(
             requireContext(),
             Manifest.permission.ACCESS_FINE_LOCATION
@@ -73,31 +113,30 @@ class MapsFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             Log.e(TAG, "enable myLocation failed", e)
         }
 
-        // Fast initial center if available
         fused.lastLocation.addOnSuccessListener { loc ->
-            if (loc != null) handleLocation(loc, animate = false)
+            if (loc != null) handleUserLocation(loc, animate = false)
         }
 
-        startUpdates()
+        startUserUpdates()
     }
 
-    private fun startUpdates() {
+    private fun startUserUpdates() {
         val granted = ContextCompat.checkSelfPermission(
             requireContext(),
             Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
         if (!granted) return
 
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L)
-            .setMinUpdateIntervalMillis(500L)
-            .setMinUpdateDistanceMeters(2f) // only update if moved 2m+
+        val request = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 5000L)
+            .setMinUpdateIntervalMillis(2000L)
+            .setMinUpdateDistanceMeters(5f)
             .build()
 
         if (locationCallback == null) {
             locationCallback = object : LocationCallback() {
                 override fun onLocationResult(result: LocationResult) {
                     val loc = result.lastLocation ?: return
-                    handleLocation(loc, animate = true)
+                    handleUserLocation(loc, animate = true)
                 }
             }
         }
@@ -105,49 +144,25 @@ class MapsFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         fused.requestLocationUpdates(request, locationCallback!!, Looper.getMainLooper())
     }
 
-    private fun stopUpdates() {
+    private fun stopUserUpdates() {
         locationCallback?.let { fused.removeLocationUpdates(it) }
     }
 
-    private fun handleLocation(loc: Location, animate: Boolean) {
+    private fun handleUserLocation(loc: Location, animate: Boolean) {
         val googleMap = map ?: return
         val here = LatLng(loc.latitude, loc.longitude)
 
         if (userMarker == null) {
-            userMarker = googleMap.addMarker(
-                MarkerOptions().position(here).title("You")
-            )
+            userMarker = googleMap.addMarker(MarkerOptions().position(here).title("You"))
         } else {
-            if (animate) {
-                animateMarker(userMarker!!, here)
-            } else {
-                userMarker!!.position = here
-            }
-        }
-
-        // Road/building-level camera
-        if (followUser) {
-            val bearing = if (loc.hasBearing()) loc.bearing else 0f
-            val cam = CameraPosition.Builder()
-                .target(here)
-                .zoom(ZOOM_ROAD)
-                .bearing(if (abs(bearing) > 0.1f) bearing else googleMap.cameraPosition.bearing)
-                .tilt(45f)
-                .build()
-
-            if (!centeredOnce) {
-                centeredOnce = true
-                googleMap.moveCamera(CameraUpdateFactory.newCameraPosition(cam))
-            } else {
-                googleMap.animateCamera(CameraUpdateFactory.newCameraPosition(cam))
-            }
+            if (animate) animateMarker(userMarker!!, here) else userMarker!!.position = here
         }
     }
 
     private fun animateMarker(marker: Marker, to: LatLng) {
         val from = marker.position
         val anim = ValueAnimator.ofFloat(0f, 1f)
-        anim.duration = 700
+        anim.duration = 600
         anim.addUpdateListener { va ->
             val t = va.animatedValue as Float
             val lat = (to.latitude - from.latitude) * t + from.latitude
@@ -159,12 +174,15 @@ class MapsFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
     override fun onResume() {
         super.onResume()
-        if (map != null) enableOrRequest()
+        if (map != null) enableOrRequestUserLocation()
+        if (map != null) startListeningToDriver()
     }
 
     override fun onPause() {
         super.onPause()
-        stopUpdates()
+        stopUserUpdates()
+        liveListener?.remove()
+        liveListener = null
     }
 
     override fun onRequestPermissionsResult(
@@ -174,7 +192,7 @@ class MapsFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            enableOrRequest()
+            enableOrRequestUserLocation()
         }
     }
 }

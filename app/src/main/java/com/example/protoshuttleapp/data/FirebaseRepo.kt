@@ -6,6 +6,7 @@ import com.google.firebase.firestore.AggregateSource
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.tasks.await
+import com.google.firebase.firestore.GeoPoint
 
 class FirebaseRepo {
 
@@ -163,5 +164,47 @@ class FirebaseRepo {
         val agg = query.count()
         val result = agg.get(AggregateSource.SERVER).await()
         return result.count.toInt()
+    }
+    suspend fun setLiveDriverLocation(
+        routeId: String = "main",
+        latitude: Double,
+        longitude: Double,
+        bearing: Float? = null,
+        speedMps: Float? = null
+    ) {
+        val doc = LiveDriverLocationDoc(
+            loc = GeoPoint(latitude, longitude),
+            bearing = bearing?.toDouble(),
+            speedMps = speedMps?.toDouble(),
+            updatedAt = System.currentTimeMillis()
+        )
+
+        db.collection("routes")
+            .document(routeId)
+            .collection("live")
+            .document("driver") // single driver doc for now
+            .set(doc)
+            .await()
+    }
+
+    fun listenLiveDriverLocation(
+        routeId: String = "main",
+        onUpdate: (LiveDriverLocationDoc?) -> Unit
+    ): ListenerRegistration {
+        return db.collection("routes")
+            .document(routeId)
+            .collection("live")
+            .document("driver")
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    Log.e("FirebaseRepo", "listenLiveDriverLocation failed", err)
+                    return@addSnapshotListener
+                }
+                if (snap == null || !snap.exists()) {
+                    onUpdate(null)
+                    return@addSnapshotListener
+                }
+                onUpdate(snap.toObject(LiveDriverLocationDoc::class.java))
+            }
     }
 }

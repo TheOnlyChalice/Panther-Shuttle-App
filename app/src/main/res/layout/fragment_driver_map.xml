@@ -1,15 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#E3F2FD">
+    android:layout_height="match_parent">
 
+    <fragment
+        android:id="@+id/driverMap"
+        android:name="com.google.android.gms.maps.SupportMapFragment"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- small overlay status -->
     <TextView
+        android:id="@+id/broadcastStatus"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="DRIVER MAP (Mock)"
-        android:textStyle="bold"
-        android:textSize="22sp"
-        android:layout_gravity="center" />
+        android:text="Starting…"
+        android:background="#AA000000"
+        android:textColor="#FFFFFF"
+        android:padding="10dp"
+        android:layout_margin="12dp"
+        android:layout_gravity="top|start" />
 
 </FrameLayout>
