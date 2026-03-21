@@ -37,7 +37,6 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
 
         store = SettingStore(requireContext())
 
-        // controls
         unitsSwitch = view.findViewById(R.id.unitsSwitch)
         serviceAlertsSwitch = view.findViewById(R.id.serviceAlertsSwitch)
         stopApproachingSwitch = view.findViewById(R.id.stopApproachingSwitch)
@@ -45,14 +44,12 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         addFavoriteBtn = view.findViewById(R.id.addFavoriteStopButton)
         favoritesRecycler = view.findViewById(R.id.favoriteStopsRecycler)
 
-        // stop names come from schedule system
         val stopNames = try {
             ScheduleData.stopNames()
         } catch (_: Exception) {
             listOf("Campus", "Panther Bay", "Mary Star")
         }
 
-        // local fallback list (used immediately so UI never blocks)
         val initialFavorites = store.getFavoriteStops().toMutableList()
 
         favoritesAdapter = FavoriteStopsAdapter(
@@ -66,25 +63,24 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         favoritesRecycler.layoutManager = LinearLayoutManager(requireContext())
         favoritesRecycler.adapter = favoritesAdapter
 
-        // Switch restore
         unitsSwitch.isChecked = store.useMiles
         unitsSwitch.text = if (store.useMiles) "Miles" else "Km"
         serviceAlertsSwitch.isChecked = store.serviceAlertsOn
         stopApproachingSwitch.isChecked = store.stopApproachingOn
 
-        // Switch listeners
         unitsSwitch.setOnCheckedChangeListener { _, isChecked ->
             store.useMiles = isChecked
             unitsSwitch.text = if (isChecked) "Miles" else "Km"
         }
+
         serviceAlertsSwitch.setOnCheckedChangeListener { _, isChecked ->
             store.serviceAlertsOn = isChecked
         }
+
         stopApproachingSwitch.setOnCheckedChangeListener { _, isChecked ->
             store.stopApproachingOn = isChecked
         }
 
-        // ✅ Firebase: sign in + listen for favorites from Firestore
         viewLifecycleOwner.lifecycleScope.launch {
             isFirebaseReady = firebase.ensureSignedIn()
             if (!isFirebaseReady) {
@@ -102,10 +98,18 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
 
                 store.setFavoriteStops(mapped)
                 favoritesAdapter.replaceAll(mapped)
+
+                // Backfill / refresh the top-level index for this user
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        firebase.rebuildFavoriteStopIndexForCurrentUser(docs)
+                    } catch (e: Exception) {
+                        Log.e("SettingsFragment", "rebuildFavoriteStopIndexForCurrentUser failed", e)
+                    }
+                }
             }
         }
 
-        // Add button
         addFavoriteBtn.setOnClickListener {
             if (stopNames.isEmpty()) {
                 Toast.makeText(requireContext(), "No stops available yet.", Toast.LENGTH_SHORT).show()
@@ -113,18 +117,15 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             }
 
             val defaultStop = stopNames.first()
-            val defaultTime = 8 * 60 // 8:00 AM
-
+            val defaultTime = 8 * 60
             val newFav = FavoriteStop(stopName = defaultStop, timeMinutes = defaultTime)
 
             val newList = favoritesAdapter.getItems().toMutableList()
             newList.add(newFav)
 
-            // local save immediately (UI feels instant)
             store.setFavoriteStops(newList)
             favoritesAdapter.replaceAll(newList)
 
-            // ✅ Firestore upsert (guard + catch)
             viewLifecycleOwner.lifecycleScope.launch {
                 val ok = firebase.ensureSignedIn()
                 if (!ok) {
@@ -190,7 +191,6 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             if (!ok) return@launch
 
             try {
-                // doc id depends on stop+time so we must delete old doc and add new doc
                 firebase.deleteFavoriteStop(old.stopName, old.timeMinutes)
                 firebase.upsertFavoriteStop(updated.stopName, updated.timeMinutes)
             } catch (e: Exception) {

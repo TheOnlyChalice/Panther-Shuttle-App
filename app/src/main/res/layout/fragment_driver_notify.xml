@@ -72,8 +72,55 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text=""
-            android:textSize="13sp"
-            android:layout_marginTop="12dp" />
+            android:textSize="14sp"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:id="@+id/nextStopHeader"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Next Stop Info"
+            android:textStyle="bold"
+            android:textSize="22sp"
+            android:layout_marginBottom="10dp" />
+
+        <LinearLayout
+            android:id="@+id/nextStopInfoContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <TextView
+                android:id="@+id/nextStopText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Loading next stop..."
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:lineSpacingExtra="2dp"
+                android:layout_marginBottom="10dp" />
+
+            <TextView
+                android:id="@+id/nextStopEstimateText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Loading student estimate..."
+                android:textSize="17sp"
+                android:lineSpacingExtra="2dp"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:id="@+id/nextStopWindowText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Estimate uses favorites within 15 minutes of the scheduled stop time."
+                android:textSize="14sp"
+                android:lineSpacingExtra="1dp"
+                android:layout_marginTop="6dp" />
+
+        </LinearLayout>
 
     </LinearLayout>
 </ScrollView>

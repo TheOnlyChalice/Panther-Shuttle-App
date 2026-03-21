@@ -2,11 +2,11 @@ package com.example.protoshuttleapp.data
 
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.AggregateSource
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.GeoPoint
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.tasks.await
-import com.google.firebase.firestore.GeoPoint
+import kotlin.math.abs
 
 class FirebaseRepo {
 
@@ -17,7 +17,6 @@ class FirebaseRepo {
         return auth.currentUser?.uid ?: throw IllegalStateException("Not signed in")
     }
 
-    // ✅ Don’t crash if Auth fails
     suspend fun ensureSignedIn(): Boolean {
         if (auth.currentUser != null) return true
         return try {
@@ -30,7 +29,7 @@ class FirebaseRepo {
     }
 
     // -------------------------
-    // Favorites (existing)
+    // Favorites
     // -------------------------
 
     private fun favoriteDocId(stopName: String, timeMinutes: Int): String {
@@ -38,34 +37,60 @@ class FirebaseRepo {
         return "${cleanStop}_$timeMinutes"
     }
 
+    private fun favoriteIndexDocId(uid: String, stopName: String, timeMinutes: Int): String {
+        return "${uid}_${favoriteDocId(stopName, timeMinutes)}"
+    }
+
     suspend fun upsertFavoriteStop(stopName: String, timeMinutes: Int) {
         val uid = requireUid()
-        val docId = favoriteDocId(stopName, timeMinutes)
+        val favoriteId = favoriteDocId(stopName, timeMinutes)
+        val indexId = favoriteIndexDocId(uid, stopName, timeMinutes)
+        val now = System.currentTimeMillis()
 
-        val doc = FavoriteStopDoc(
+        val favoriteDoc = FavoriteStopDoc(
             stopName = stopName,
             timeMinutes = timeMinutes,
-            updatedAt = System.currentTimeMillis()
+            updatedAt = now
         )
 
-        db.collection("users")
+        val indexData = hashMapOf(
+            "uid" to uid,
+            "stopName" to stopName,
+            "timeMinutes" to timeMinutes,
+            "updatedAt" to now
+        )
+
+        val userFavoriteRef = db.collection("users")
             .document(uid)
             .collection("favorites")
-            .document(docId)
-            .set(doc)
-            .await()
+            .document(favoriteId)
+
+        val indexRef = db.collection("favoriteStopIndex")
+            .document(indexId)
+
+        val batch = db.batch()
+        batch.set(userFavoriteRef, favoriteDoc)
+        batch.set(indexRef, indexData)
+        batch.commit().await()
     }
 
     suspend fun deleteFavoriteStop(stopName: String, timeMinutes: Int) {
         val uid = requireUid()
-        val docId = favoriteDocId(stopName, timeMinutes)
+        val favoriteId = favoriteDocId(stopName, timeMinutes)
+        val indexId = favoriteIndexDocId(uid, stopName, timeMinutes)
 
-        db.collection("users")
+        val userFavoriteRef = db.collection("users")
             .document(uid)
             .collection("favorites")
-            .document(docId)
-            .delete()
-            .await()
+            .document(favoriteId)
+
+        val indexRef = db.collection("favoriteStopIndex")
+            .document(indexId)
+
+        val batch = db.batch()
+        batch.delete(userFavoriteRef)
+        batch.delete(indexRef)
+        batch.commit().await()
     }
 
     fun listenFavoriteStops(onUpdate: (List<FavoriteStopDoc>) -> Unit): ListenerRegistration {
@@ -79,15 +104,61 @@ class FirebaseRepo {
             }
     }
 
+    suspend fun rebuildFavoriteStopIndexForCurrentUser(favorites: List<FavoriteStopDoc>) {
+        val uid = requireUid()
+
+        val existing = db.collection("favoriteStopIndex")
+            .whereEqualTo("uid", uid)
+            .get()
+            .await()
+
+        val batch = db.batch()
+
+        for (doc in existing.documents) {
+            batch.delete(doc.reference)
+        }
+
+        for (fav in favorites) {
+            val indexId = favoriteIndexDocId(uid, fav.stopName, fav.timeMinutes)
+            val indexRef = db.collection("favoriteStopIndex").document(indexId)
+
+            val indexData = hashMapOf(
+                "uid" to uid,
+                "stopName" to fav.stopName,
+                "timeMinutes" to fav.timeMinutes,
+                "updatedAt" to fav.updatedAt
+            )
+
+            batch.set(indexRef, indexData)
+        }
+
+        batch.commit().await()
+    }
+
+    suspend fun countIndexedFavoriteUsersForStopAroundTime(
+        stopName: String,
+        targetTimeMinutes: Int,
+        windowMinutes: Int = 15
+    ): Int {
+        val snap = db.collection("favoriteStopIndex")
+            .whereEqualTo("stopName", stopName)
+            .get()
+            .await()
+
+        return snap.documents
+            .filter { doc ->
+                val time = (doc.getLong("timeMinutes") ?: -100000L).toInt()
+                abs(time - targetTimeMinutes) <= windowMinutes
+            }
+            .mapNotNull { it.getString("uid") }
+            .distinct()
+            .size
+    }
+
     // -------------------------
     // Driver -> Student messages
     // -------------------------
 
-    /**
-     * Driver -> Students notification.
-     * - targetStopName == null  => broadcast to everyone (audience=["ALL"])
-     * - targetStopName != null  => only students who favorited that stop (audience=[stopName])
-     */
     suspend fun sendDriverNotification(
         targetStopName: String?,
         title: String,
@@ -113,13 +184,6 @@ class FirebaseRepo {
             .await()
     }
 
-    /**
-     * Student-side listener that fetches:
-     * - broadcast messages (audience contains "ALL")
-     * - stop-specific messages (audience contains one of the student's favorited stops)
-     *
-     * NOTE: Firestore's array-contains-any supports up to 10 tags.
-     */
     fun listenDriverMessagesForAudience(
         audienceTags: List<String>,
         limit: Long = 50,
@@ -137,9 +201,6 @@ class FirebaseRepo {
             .orderBy("createdAt")
             .limitToLast(limit)
             .addSnapshotListener { snap, err ->
-
-                // ✅ If Firestore throws (missing index / permission denied),
-                // do NOT clear the UI — just log and keep the last list.
                 if (err != null) {
                     Log.e("FirebaseRepo", "listenDriverMessagesForAudience failed", err)
                     return@addSnapshotListener
@@ -155,16 +216,10 @@ class FirebaseRepo {
             }
     }
 
-    // (Optional existing count method)
-    suspend fun countFavoritesFor(stopName: String, timeMinutes: Int): Int {
-        val query = db.collectionGroup("favorites")
-            .whereEqualTo("stopName", stopName)
-            .whereEqualTo("timeMinutes", timeMinutes)
+    // -------------------------
+    // Live driver location
+    // -------------------------
 
-        val agg = query.count()
-        val result = agg.get(AggregateSource.SERVER).await()
-        return result.count.toInt()
-    }
     suspend fun setLiveDriverLocation(
         routeId: String = "main",
         latitude: Double,
@@ -182,7 +237,7 @@ class FirebaseRepo {
         db.collection("routes")
             .document(routeId)
             .collection("live")
-            .document("driver") // single driver doc for now
+            .document("driver")
             .set(doc)
             .await()
     }
