@@ -4,7 +4,7 @@
 
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="true"
@@ -36,6 +36,11 @@
         <!-- Driver Side -->
         <activity
             android:name=".ui.driver.DriverMainActivity"
+            android:exported="false" />
+
+        <!-- Manager Side -->
+        <activity
+            android:name=".ui.manager.ManagerMainActivity"
             android:exported="false" />
 
     </application>

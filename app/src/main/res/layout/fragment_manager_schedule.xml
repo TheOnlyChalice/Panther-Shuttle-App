@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@android:color/white"
+    android:padding="12dp">
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/addScheduleButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Add Schedule Entry" />
+
+    <TextView
+        android:id="@+id/scheduleStatusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Create and edit the shuttle schedule using the stops from the map tab."
+        android:textSize="14sp"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="10dp" />
+
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/managerScheduleTabs"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="10dp"
+        app:tabIndicatorColor="?attr/colorPrimary"
+        app:tabSelectedTextColor="?attr/colorPrimary"
+        app:tabTextColor="#7A7A7A"
+        app:tabMode="scrollable" />
+
+    <TextView
+        android:id="@+id/emptyScheduleText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="No schedule entries yet."
+        android:textSize="15sp"
+        android:visibility="gone"
+        android:layout_marginBottom="10dp" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/scheduleRecycler"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="12dp" />
+
+</LinearLayout>

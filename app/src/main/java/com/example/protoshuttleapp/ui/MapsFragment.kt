@@ -13,13 +13,20 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.protoshuttleapp.R
 import com.example.protoshuttleapp.data.FirebaseRepo
-import com.example.protoshuttleapp.data.LiveDriverLocationDoc
-import com.google.android.gms.location.*
+import com.example.protoshuttleapp.data.ManagerStopDoc
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.SupportMapFragment
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.LatLngBounds
 import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
 import com.google.firebase.firestore.ListenerRegistration
@@ -31,6 +38,8 @@ class MapsFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         private const val TAG = "MapsFragment"
         private const val REQ = 1001
         private const val ZOOM = 16.5f
+        private val DEFAULT_CAMPUS = LatLng(28.0634, -80.6225)
+        private const val DEFAULT_ZOOM = 15f
     }
 
     private var map: GoogleMap? = null
@@ -39,12 +48,17 @@ class MapsFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
     private var userMarker: Marker? = null
     private var driverMarker: Marker? = null
 
+    private val stopMarkers = mutableMapOf<String, Marker>()
+    private val currentStops = mutableListOf<ManagerStopDoc>()
+
     private var locationCallback: LocationCallback? = null
 
     private val firebase = FirebaseRepo()
     private var liveListener: ListenerRegistration? = null
+    private var stopsListener: ListenerRegistration? = null
 
     private var centeredOnDriverOnce = false
+    private var showedDefaultCamera = false
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -60,8 +74,14 @@ class MapsFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         googleMap.uiSettings.isMyLocationButtonEnabled = true
         googleMap.uiSettings.isCompassEnabled = true
 
+        if (!showedDefaultCamera) {
+            showedDefaultCamera = true
+            googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(DEFAULT_CAMPUS, DEFAULT_ZOOM))
+        }
+
         enableOrRequestUserLocation()
         startListeningToDriver()
+        startListeningToStops()
     }
 
     private fun startListeningToDriver() {
@@ -87,11 +107,78 @@ class MapsFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
                     animateMarker(driverMarker!!, pos)
                 }
 
-                // follow driver
                 if (!centeredOnDriverOnce) {
                     centeredOnDriverOnce = true
                     googleMap.animateCamera(CameraUpdateFactory.newLatLngZoom(pos, ZOOM))
                 }
+            }
+        }
+    }
+
+    private fun startListeningToStops() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val ok = firebase.ensureSignedIn()
+            if (!ok) {
+                Log.e(TAG, "Firebase offline; can't listen to stop markers")
+                return@launch
+            }
+
+            stopsListener?.remove()
+            stopsListener = firebase.listenManagerStops { stops ->
+                currentStops.clear()
+                currentStops.addAll(stops)
+                renderStopMarkers()
+            }
+        }
+    }
+
+    private fun renderStopMarkers() {
+        val googleMap = map ?: return
+
+        val incomingIds = currentStops.map { it.id }.toSet()
+
+        val toRemove = stopMarkers.keys.filter { it !in incomingIds }
+        for (id in toRemove) {
+            stopMarkers.remove(id)?.remove()
+        }
+
+        for (stop in currentStops) {
+            val position = LatLng(stop.latitude, stop.longitude)
+            val existing = stopMarkers[stop.id]
+
+            if (existing == null) {
+                val marker = googleMap.addMarker(
+                    MarkerOptions()
+                        .position(position)
+                        .title(stop.stopName)
+                        .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE))
+                )
+                if (marker != null) {
+                    stopMarkers[stop.id] = marker
+                }
+            } else {
+                existing.position = position
+                existing.title = stop.stopName
+            }
+        }
+
+        if (!centeredOnDriverOnce && userMarker == null && currentStops.isNotEmpty()) {
+            if (currentStops.size == 1) {
+                val only = currentStops.first()
+                googleMap.animateCamera(
+                    CameraUpdateFactory.newLatLngZoom(
+                        LatLng(only.latitude, only.longitude),
+                        DEFAULT_ZOOM
+                    )
+                )
+            } else {
+                val boundsBuilder = LatLngBounds.Builder()
+                currentStops.forEach { stop ->
+                    boundsBuilder.include(LatLng(stop.latitude, stop.longitude))
+                }
+                googleMap.animateCamera(
+                    CameraUpdateFactory.newLatLngBounds(boundsBuilder.build(), 140)
+                )
             }
         }
     }
@@ -174,15 +261,22 @@ class MapsFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
     override fun onResume() {
         super.onResume()
-        if (map != null) enableOrRequestUserLocation()
-        if (map != null) startListeningToDriver()
+        if (map != null) {
+            enableOrRequestUserLocation()
+            startListeningToDriver()
+            startListeningToStops()
+        }
     }
 
     override fun onPause() {
         super.onPause()
         stopUserUpdates()
+
         liveListener?.remove()
         liveListener = null
+
+        stopsListener?.remove()
+        stopsListener = null
     }
 
     override fun onRequestPermissionsResult(

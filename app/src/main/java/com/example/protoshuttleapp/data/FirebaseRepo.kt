@@ -2,6 +2,7 @@ package com.example.protoshuttleapp.data
 
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.AggregateSource
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
 import com.google.firebase.firestore.ListenerRegistration
@@ -155,6 +156,16 @@ class FirebaseRepo {
             .size
     }
 
+    suspend fun countFavoritesFor(stopName: String, timeMinutes: Int): Int {
+        val query = db.collectionGroup("favorites")
+            .whereEqualTo("stopName", stopName)
+            .whereEqualTo("timeMinutes", timeMinutes)
+
+        val agg = query.count()
+        val result = agg.get(AggregateSource.SERVER).await()
+        return result.count.toInt()
+    }
+
     // -------------------------
     // Driver -> Student messages
     // -------------------------
@@ -261,5 +272,189 @@ class FirebaseRepo {
                 }
                 onUpdate(snap.toObject(LiveDriverLocationDoc::class.java))
             }
+    }
+
+    // -------------------------
+    // Manager stops (Map tab)
+    // -------------------------
+
+    fun listenManagerStops(onUpdate: (List<ManagerStopDoc>) -> Unit): ListenerRegistration {
+        return db.collection("stops")
+            .orderBy("stopName")
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    Log.e("FirebaseRepo", "listenManagerStops failed", err)
+                    return@addSnapshotListener
+                }
+
+                val list = snap?.toObjects(ManagerStopDoc::class.java) ?: emptyList()
+                onUpdate(list)
+            }
+    }
+
+    suspend fun createManagerStop(
+        stopName: String,
+        latitude: Double,
+        longitude: Double
+    ): String {
+        val cleanName = stopName.trim()
+        if (cleanName.isBlank()) throw IllegalArgumentException("Stop name can't be empty.")
+
+        val docRef = db.collection("stops").document()
+        val now = System.currentTimeMillis()
+
+        val doc = ManagerStopDoc(
+            id = docRef.id,
+            stopName = cleanName,
+            latitude = latitude,
+            longitude = longitude,
+            updatedAt = now
+        )
+
+        docRef.set(doc).await()
+        return docRef.id
+    }
+
+    suspend fun updateManagerStop(
+        stopId: String,
+        stopName: String,
+        latitude: Double,
+        longitude: Double
+    ) {
+        val cleanName = stopName.trim()
+        if (cleanName.isBlank()) throw IllegalArgumentException("Stop name can't be empty.")
+
+        val stopRef = db.collection("stops").document(stopId)
+        val now = System.currentTimeMillis()
+
+        val scheduleSnap = db.collection("routeSchedule")
+            .whereEqualTo("stopId", stopId)
+            .get()
+            .await()
+
+        val batch = db.batch()
+
+        batch.set(
+            stopRef,
+            ManagerStopDoc(
+                id = stopId,
+                stopName = cleanName,
+                latitude = latitude,
+                longitude = longitude,
+                updatedAt = now
+            )
+        )
+
+        for (doc in scheduleSnap.documents) {
+            batch.update(
+                doc.reference,
+                mapOf(
+                    "stopName" to cleanName,
+                    "updatedAt" to now
+                )
+            )
+        }
+
+        batch.commit().await()
+    }
+
+    suspend fun deleteManagerStop(stopId: String) {
+        val stopRef = db.collection("stops").document(stopId)
+
+        val scheduleSnap = db.collection("routeSchedule")
+            .whereEqualTo("stopId", stopId)
+            .get()
+            .await()
+
+        val batch = db.batch()
+        batch.delete(stopRef)
+
+        for (doc in scheduleSnap.documents) {
+            batch.delete(doc.reference)
+        }
+
+        batch.commit().await()
+    }
+
+    // -------------------------
+    // Manager schedule (Schedule tab)
+    // -------------------------
+
+    fun listenManagerSchedule(onUpdate: (List<ManagerScheduleEntryDoc>) -> Unit): ListenerRegistration {
+        return db.collection("routeSchedule")
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    Log.e("FirebaseRepo", "listenManagerSchedule failed", err)
+                    return@addSnapshotListener
+                }
+
+                val list = snap?.toObjects(ManagerScheduleEntryDoc::class.java) ?: emptyList()
+                onUpdate(list)
+            }
+    }
+
+    suspend fun createManagerScheduleEntry(
+        stopId: String,
+        stopName: String,
+        dayOfWeek: Int,
+        timeMinutes: Int
+    ): String {
+        val cleanStopId = stopId.trim()
+        val cleanStopName = stopName.trim()
+        val cleanDay = dayOfWeek.coerceIn(1, 7)
+
+        if (cleanStopId.isBlank()) throw IllegalArgumentException("Stop id can't be empty.")
+        if (cleanStopName.isBlank()) throw IllegalArgumentException("Stop name can't be empty.")
+
+        val docRef = db.collection("routeSchedule").document()
+        val now = System.currentTimeMillis()
+
+        val doc = ManagerScheduleEntryDoc(
+            id = docRef.id,
+            stopId = cleanStopId,
+            stopName = cleanStopName,
+            dayOfWeek = cleanDay,
+            timeMinutes = timeMinutes,
+            updatedAt = now
+        )
+
+        docRef.set(doc).await()
+        return docRef.id
+    }
+
+    suspend fun updateManagerScheduleEntry(
+        entryId: String,
+        stopId: String,
+        stopName: String,
+        dayOfWeek: Int,
+        timeMinutes: Int
+    ) {
+        val cleanStopId = stopId.trim()
+        val cleanStopName = stopName.trim()
+        val cleanDay = dayOfWeek.coerceIn(1, 7)
+
+        if (cleanStopId.isBlank()) throw IllegalArgumentException("Stop id can't be empty.")
+        if (cleanStopName.isBlank()) throw IllegalArgumentException("Stop name can't be empty.")
+
+        val doc = ManagerScheduleEntryDoc(
+            id = entryId,
+            stopId = cleanStopId,
+            stopName = cleanStopName,
+            dayOfWeek = cleanDay,
+            timeMinutes = timeMinutes,
+            updatedAt = System.currentTimeMillis()
+        )
+
+        db.collection("routeSchedule")
+            .document(entryId)
+            .set(doc)
+            .await()
+    }
+
+    suspend fun deleteManagerScheduleEntry(entryId: String) {
+        db.collection("routeSchedule")
+            .document(entryId)
+            .delete()
+            .await()
     }
 }

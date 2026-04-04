@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@+id/menu_student_side"
+        android:title="Student Side" />
+
+    <item
+        android:id="@+id/menu_driver_side"
+        android:title="Driver Side" />
+
+    <item
+        android:id="@+id/menu_role_select"
+        android:title="Role Select" />
+
+</menu>

@@ -14,15 +14,23 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.protoshuttleapp.R
 import com.example.protoshuttleapp.data.FirebaseRepo
-import com.google.android.gms.location.*
+import com.example.protoshuttleapp.data.ManagerStopDoc
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.SupportMapFragment
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
+import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -31,7 +39,9 @@ class DriverMapFragment : Fragment(R.layout.fragment_driver_map), OnMapReadyCall
     companion object {
         private const val REQ = 2001
         private const val ZOOM = 17.5f
-        private const val PUBLISH_EVERY_MS = 2500L // ~2–3 seconds
+        private const val PUBLISH_EVERY_MS = 2500L
+        private val DEFAULT_CAMPUS = LatLng(28.0634, -80.6225)
+        private const val DEFAULT_ZOOM = 15f
     }
 
     private var map: GoogleMap? = null
@@ -40,8 +50,12 @@ class DriverMapFragment : Fragment(R.layout.fragment_driver_map), OnMapReadyCall
 
     private val firebase = FirebaseRepo()
     private var firebaseReady = false
+    private var stopsListener: ListenerRegistration? = null
 
     private var driverMarker: Marker? = null
+    private val stopMarkers = mutableMapOf<String, Marker>()
+    private val currentStops = mutableListOf<ManagerStopDoc>()
+
     private var centeredOnce = false
     private var lastPublishAt = 0L
 
@@ -63,13 +77,57 @@ class DriverMapFragment : Fragment(R.layout.fragment_driver_map), OnMapReadyCall
         googleMap.uiSettings.isCompassEnabled = true
         googleMap.uiSettings.isMyLocationButtonEnabled = true
 
-        // sign in once
+        googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(DEFAULT_CAMPUS, DEFAULT_ZOOM))
+
         viewLifecycleOwner.lifecycleScope.launch {
             firebaseReady = firebase.ensureSignedIn()
             status.text = if (firebaseReady) "Broadcasting location ✓" else "Firebase offline"
+            if (firebaseReady) {
+                startListeningToStops()
+            }
         }
 
         enableOrRequest()
+    }
+
+    private fun startListeningToStops() {
+        stopsListener?.remove()
+        stopsListener = firebase.listenManagerStops { stops ->
+            currentStops.clear()
+            currentStops.addAll(stops)
+            renderStopMarkers()
+        }
+    }
+
+    private fun renderStopMarkers() {
+        val googleMap = map ?: return
+
+        val incomingIds = currentStops.map { it.id }.toSet()
+
+        val toRemove = stopMarkers.keys.filter { it !in incomingIds }
+        for (id in toRemove) {
+            stopMarkers.remove(id)?.remove()
+        }
+
+        for (stop in currentStops) {
+            val position = LatLng(stop.latitude, stop.longitude)
+            val existing = stopMarkers[stop.id]
+
+            if (existing == null) {
+                val marker = googleMap.addMarker(
+                    MarkerOptions()
+                        .position(position)
+                        .title(stop.stopName)
+                        .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE))
+                )
+                if (marker != null) {
+                    stopMarkers[stop.id] = marker
+                }
+            } else {
+                existing.position = position
+                existing.title = stop.stopName
+            }
+        }
     }
 
     private fun enableOrRequest() {
@@ -85,7 +143,8 @@ class DriverMapFragment : Fragment(R.layout.fragment_driver_map), OnMapReadyCall
 
         try {
             map?.isMyLocationEnabled = true
-        } catch (_: SecurityException) {}
+        } catch (_: SecurityException) {
+        }
 
         fused.lastLocation.addOnSuccessListener { loc ->
             if (loc != null) handleLocation(loc, animate = false)
@@ -112,7 +171,6 @@ class DriverMapFragment : Fragment(R.layout.fragment_driver_map), OnMapReadyCall
                     val loc = result.lastLocation ?: return
                     handleLocation(loc, animate = true)
 
-                    // publish throttled
                     val now = System.currentTimeMillis()
                     if (firebaseReady && now - lastPublishAt >= PUBLISH_EVERY_MS) {
                         lastPublishAt = now
@@ -153,7 +211,6 @@ class DriverMapFragment : Fragment(R.layout.fragment_driver_map), OnMapReadyCall
             if (animate) animateMarker(driverMarker!!, here) else driverMarker!!.position = here
         }
 
-        // follow driver camera
         val bearing = if (loc.hasBearing()) loc.bearing else 0f
         val cam = CameraPosition.Builder()
             .target(here)
@@ -185,12 +242,19 @@ class DriverMapFragment : Fragment(R.layout.fragment_driver_map), OnMapReadyCall
 
     override fun onResume() {
         super.onResume()
-        if (map != null) enableOrRequest()
+        if (map != null) {
+            enableOrRequest()
+            if (firebaseReady) {
+                startListeningToStops()
+            }
+        }
     }
 
     override fun onPause() {
         super.onPause()
         stopUpdates()
+        stopsListener?.remove()
+        stopsListener = null
     }
 
     override fun onRequestPermissionsResult(

@@ -5,11 +5,12 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.example.protoshuttleapp.data.FirebaseRepo
-import kotlinx.coroutines.launch
 import com.example.protoshuttleapp.R
+import com.example.protoshuttleapp.data.FirebaseRepo
 import com.example.protoshuttleapp.ui.driver.DriverMainActivity
+import com.example.protoshuttleapp.ui.manager.ManagerMainActivity
 import com.google.android.material.button.MaterialButton
+import kotlinx.coroutines.launch
 
 class RoleSelectActivity : AppCompatActivity() {
 
@@ -19,11 +20,14 @@ class RoleSelectActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_role_select)
 
-        // Make sure Firebase auth is ready (anonymous sign-in, etc.)
         lifecycleScope.launch {
-            val ok = FirebaseRepo().ensureSignedIn()
+            val ok = firebase.ensureSignedIn()
             if (!ok) {
-                Toast.makeText(this@RoleSelectActivity, "Firebase sign-in failed (offline?)", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    this@RoleSelectActivity,
+                    "Firebase sign-in failed (offline?)",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }
 
@@ -40,7 +44,7 @@ class RoleSelectActivity : AppCompatActivity() {
         }
 
         btnManager.setOnClickListener {
-            Toast.makeText(this, "Manager side coming soon.", Toast.LENGTH_SHORT).show()
+            startActivity(Intent(this, ManagerMainActivity::class.java))
         }
     }
 }
