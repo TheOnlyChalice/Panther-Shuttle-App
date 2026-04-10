@@ -11,7 +11,6 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- Header -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="48dp"
@@ -22,7 +21,6 @@
             android:textColor="#333333"
             android:background="#E0E0E0" />
 
-        <!-- Shuttle Status Card -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -47,17 +45,19 @@
                     android:textColor="#333333" />
 
                 <TextView
+                    android:id="@+id/nextStopText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="Next Stop: Library (ETA 3 min)"
+                    android:text="Next Stop: Loading..."
                     android:textSize="14sp"
                     android:textColor="#555555" />
 
                 <TextView
+                    android:id="@+id/estimatedStudentsText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Capacity: 60%   Status: On Time"
+                    android:text="Estimated students: Loading..."
                     android:textSize="14sp"
                     android:textColor="#555555" />
 
@@ -65,7 +65,6 @@
 
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Buttons -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnViewLiveMap"
             android:layout_width="match_parent"
@@ -82,7 +81,6 @@
             android:text="View Full Schedule"
             app:cornerRadius="16dp" />
 
-        <!-- Latest Notifications -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -106,7 +104,6 @@
                     android:textSize="14sp"
                     android:textColor="#333333" />
 
-                <!-- Container that HomeFragment fills -->
                 <LinearLayout
                     android:id="@+id/latestContainer"
                     android:layout_width="match_parent"

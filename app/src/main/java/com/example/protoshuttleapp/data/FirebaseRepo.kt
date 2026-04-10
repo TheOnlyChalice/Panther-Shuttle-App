@@ -170,20 +170,31 @@ class FirebaseRepo {
     // Driver -> Student messages
     // -------------------------
 
+    fun makeStopTimeAudienceTag(stopName: String, timeMinutes: Int): String {
+        val normalizedStop = stopName.trim().lowercase()
+        return "STOP_TIME::$normalizedStop::$timeMinutes"
+    }
+
     suspend fun sendDriverNotification(
         targetStopName: String?,
         title: String,
         message: String,
-        timeMinutes: Int = 0
+        timeMinutes: Int? = null,
+        exactTimeMatch: Boolean = false
     ) {
         val cleanStop = targetStopName?.trim().orEmpty()
-        val audience = if (cleanStop.isBlank()) listOf("ALL") else listOf(cleanStop)
+
+        val audience = when {
+            cleanStop.isBlank() -> listOf("ALL")
+            exactTimeMatch && timeMinutes != null -> listOf(makeStopTimeAudienceTag(cleanStop, timeMinutes))
+            else -> listOf(cleanStop)
+        }
 
         val now = System.currentTimeMillis()
         val doc = DriverMessageDoc(
             audience = audience,
             stopName = cleanStop,
-            timeMinutes = timeMinutes,
+            timeMinutes = timeMinutes ?: 0,
             title = title,
             message = message,
             createdAt = now,

@@ -9,16 +9,19 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.protoshuttleapp.R
 import com.example.protoshuttleapp.data.FirebaseRepo
-import com.example.protoshuttleapp.ui.schedule.ScheduleData
+import com.example.protoshuttleapp.data.ManagerScheduleEntryDoc
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.MaterialAutoCompleteTextView
 import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
+import com.google.firebase.firestore.ListenerRegistration
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
-import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeFormatterBuilder
-import java.time.temporal.ChronoField
 import java.util.Locale
 
 class DriverNotifyFragment : Fragment(R.layout.fragment_driver_notify) {
@@ -26,6 +29,8 @@ class DriverNotifyFragment : Fragment(R.layout.fragment_driver_notify) {
     private val firebase = FirebaseRepo()
 
     private lateinit var stopDropdown: MaterialAutoCompleteTextView
+    private lateinit var timeDropdown: MaterialAutoCompleteTextView
+    private lateinit var timeDropdownLayout: TextInputLayout
     private lateinit var titleInput: TextInputEditText
     private lateinit var messageInput: TextInputEditText
     private lateinit var sendButton: MaterialButton
@@ -33,16 +38,31 @@ class DriverNotifyFragment : Fragment(R.layout.fragment_driver_notify) {
     private lateinit var nextStopText: TextView
     private lateinit var nextStopEstimateText: TextView
 
-    private val timeParser: DateTimeFormatter = DateTimeFormatterBuilder()
-        .parseCaseInsensitive()
-        .appendPattern("h:mma")
-        .parseDefaulting(ChronoField.SECOND_OF_MINUTE, 0)
-        .toFormatter(Locale.US)
+    private var scheduleListener: ListenerRegistration? = null
+    private var clockJob: Job? = null
+
+    private val allScheduleEntries = mutableListOf<ManagerScheduleEntryDoc>()
+
+    private var currentStopOptions: List<String> = emptyList()
+    private var currentTimeOptions: List<TimeOption> = emptyList()
+
+    private data class TimeOption(
+        val label: String,
+        val timeMinutes: Int? = null
+    )
+
+    private data class UpcomingStopInfo(
+        val stopName: String,
+        val timeMinutes: Int,
+        val dayOffset: Int
+    )
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
         stopDropdown = view.findViewById(R.id.stopDropdown)
+        timeDropdown = view.findViewById(R.id.timeDropdown)
+        timeDropdownLayout = view.findViewById(R.id.timeDropdownLayout)
         titleInput = view.findViewById(R.id.titleInput)
         messageInput = view.findViewById(R.id.messageInput)
         sendButton = view.findViewById(R.id.sendButton)
@@ -50,41 +70,182 @@ class DriverNotifyFragment : Fragment(R.layout.fragment_driver_notify) {
         nextStopText = view.findViewById(R.id.nextStopText)
         nextStopEstimateText = view.findViewById(R.id.nextStopEstimateText)
 
-        setupDropdown()
-        loadNextStopInfo()
+        setupDropdownListeners()
+        startScheduleListener()
+        startClockTicker()
 
         sendButton.setOnClickListener {
             sendNotification()
         }
     }
 
+    override fun onDestroyView() {
+        scheduleListener?.remove()
+        scheduleListener = null
+        clockJob?.cancel()
+        clockJob = null
+        super.onDestroyView()
+    }
+
     override fun onResume() {
         super.onResume()
-        if (this::nextStopText.isInitialized && this::nextStopEstimateText.isInitialized) {
-            loadNextStopInfo()
+        renderFromSchedule()
+    }
+
+    private fun setupDropdownListeners() {
+        stopDropdown.setOnItemClickListener { _, _, _, _ ->
+            refreshTimeOptions(preserveCurrentSelection = false)
         }
     }
 
-    private fun setupDropdown() {
-        val stops = ScheduleData.stopNames()
-        val options = ArrayList<String>().apply {
-            add("All Stops")
-            addAll(stops)
+    private fun startScheduleListener() {
+        sendStatus.text = ""
+        nextStopText.text = "Loading next stop..."
+        nextStopEstimateText.text = "Loading estimated students..."
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val ok = firebase.ensureSignedIn()
+            if (!ok) {
+                nextStopText.text = "Schedule unavailable."
+                nextStopEstimateText.text = "Estimated students unavailable."
+                return@launch
+            }
+
+            scheduleListener?.remove()
+            scheduleListener = firebase.listenManagerSchedule { entries ->
+                allScheduleEntries.clear()
+                allScheduleEntries.addAll(entries)
+                renderFromSchedule()
+            }
         }
+    }
+
+    private fun startClockTicker() {
+        clockJob?.cancel()
+        clockJob = viewLifecycleOwner.lifecycleScope.launch {
+            while (isActive) {
+                renderFromSchedule()
+                delay(30_000L)
+            }
+        }
+    }
+
+    private fun renderFromSchedule() {
+        refreshStopOptions()
+        refreshTimeOptions(preserveCurrentSelection = true)
+        loadNextStopInfo()
+    }
+
+    private fun refreshStopOptions() {
+        val currentSelection = stopDropdown.text?.toString()?.trim().orEmpty()
+        val nextUpcoming = findNextScheduledStop()
+        val scheduleForChoices = scheduleEntriesForNotificationChoices()
+
+        val stops = scheduleForChoices
+            .map { it.stopName.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+
+        currentStopOptions = listOf("All Stops") + stops
 
         stopDropdown.setAdapter(
-            ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, options)
+            ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, currentStopOptions)
         )
-        stopDropdown.setText("All Stops", false)
+
+        val stopToSelect = when {
+            currentSelection in currentStopOptions -> currentSelection
+            nextUpcoming != null && nextUpcoming.stopName in currentStopOptions -> nextUpcoming.stopName
+            else -> "All Stops"
+        }
+
+        stopDropdown.setText(stopToSelect, false)
+    }
+
+    private fun refreshTimeOptions(preserveCurrentSelection: Boolean) {
+        val selectedStop = stopDropdown.text?.toString()?.trim().orEmpty()
+        val currentTimeText = timeDropdown.text?.toString()?.trim().orEmpty()
+
+        if (selectedStop.isBlank() || selectedStop.equals("All Stops", ignoreCase = true)) {
+            currentTimeOptions = listOf(TimeOption(label = "Any Time", timeMinutes = null))
+            timeDropdown.setAdapter(
+                ArrayAdapter(
+                    requireContext(),
+                    android.R.layout.simple_list_item_1,
+                    currentTimeOptions.map { it.label }
+                )
+            )
+            timeDropdown.setText("Any Time", false)
+            timeDropdownLayout.isEnabled = false
+            timeDropdown.isEnabled = false
+            return
+        }
+
+        val entriesForStop = scheduleEntriesForNotificationChoices()
+            .filter { it.stopName == selectedStop }
+            .sortedBy { it.timeMinutes }
+
+        val timeOptions = mutableListOf(TimeOption(label = "Any Time", timeMinutes = null))
+        timeOptions.addAll(
+            entriesForStop
+                .map { it.timeMinutes }
+                .distinct()
+                .sorted()
+                .map { minutes -> TimeOption(label = formatMinutes(minutes), timeMinutes = minutes) }
+        )
+
+        currentTimeOptions = timeOptions
+
+        timeDropdown.setAdapter(
+            ArrayAdapter(
+                requireContext(),
+                android.R.layout.simple_list_item_1,
+                currentTimeOptions.map { it.label }
+            )
+        )
+
+        timeDropdownLayout.isEnabled = true
+        timeDropdown.isEnabled = true
+
+        val defaultSelection = if (preserveCurrentSelection && currentTimeOptions.any { it.label == currentTimeText }) {
+            currentTimeText
+        } else {
+            val nextForSameStop = findNextScheduledStop()
+                ?.takeIf { it.stopName == selectedStop }
+                ?.let { formatMinutes(it.timeMinutes) }
+
+            when {
+                nextForSameStop != null && currentTimeOptions.any { it.label == nextForSameStop } -> nextForSameStop
+                else -> "Any Time"
+            }
+        }
+
+        timeDropdown.setText(defaultSelection, false)
+    }
+
+    private fun scheduleEntriesForNotificationChoices(): List<ManagerScheduleEntryDoc> {
+        val nextUpcoming = findNextScheduledStop()
+
+        val chosenDay = if (nextUpcoming != null) {
+            dayValueForOffset(nextUpcoming.dayOffset)
+        } else {
+            LocalDate.now().dayOfWeek.toManagerDayValue()
+        }
+
+        return allScheduleEntries.filter { normalizeDayOfWeek(it.dayOfWeek) == chosenDay }
     }
 
     private fun sendNotification() {
-        val choice = stopDropdown.text?.toString()?.trim().orEmpty()
-        val targetStop = if (choice.equals("All Stops", ignoreCase = true) || choice.isBlank()) {
+        val selectedStop = stopDropdown.text?.toString()?.trim().orEmpty()
+        val targetStop = if (selectedStop.equals("All Stops", ignoreCase = true) || selectedStop.isBlank()) {
             null
         } else {
-            choice
+            selectedStop
         }
+
+        val selectedTimeLabel = timeDropdown.text?.toString()?.trim().orEmpty()
+        val selectedTime = currentTimeOptions.firstOrNull { it.label == selectedTimeLabel }?.timeMinutes
+        val exactTimeMatch = targetStop != null && selectedTime != null
 
         val title = titleInput.text?.toString()?.trim().orEmpty()
         val message = messageInput.text?.toString()?.trim().orEmpty()
@@ -94,7 +255,7 @@ class DriverNotifyFragment : Fragment(R.layout.fragment_driver_notify) {
             return
         }
 
-        sendStatus.text = "Sending…"
+        sendStatus.text = "Sending..."
 
         viewLifecycleOwner.lifecycleScope.launch {
             val ok = firebase.ensureSignedIn()
@@ -108,10 +269,17 @@ class DriverNotifyFragment : Fragment(R.layout.fragment_driver_notify) {
                 firebase.sendDriverNotification(
                     targetStopName = targetStop,
                     title = title.ifBlank { "Driver Update" },
-                    message = message
+                    message = message,
+                    timeMinutes = selectedTime,
+                    exactTimeMatch = exactTimeMatch
                 )
 
-                sendStatus.text = "Sent${if (targetStop == null) " to everyone" else " to $targetStop"}."
+                sendStatus.text = when {
+                    targetStop == null -> "Sent to everyone."
+                    selectedTime != null -> "Sent to $targetStop at ${formatMinutes(selectedTime)}."
+                    else -> "Sent to $targetStop."
+                }
+
                 Toast.makeText(requireContext(), "Sent!", Toast.LENGTH_SHORT).show()
                 messageInput.setText("")
             } catch (e: Exception) {
@@ -126,14 +294,14 @@ class DriverNotifyFragment : Fragment(R.layout.fragment_driver_notify) {
 
         if (next == null) {
             nextStopText.text = "No upcoming stop found."
-            nextStopEstimateText.text = "Estimate error: no upcoming stop."
+            nextStopEstimateText.text = "Estimated students unavailable."
             return
         }
 
-        val whenText = if (next.isTomorrow) {
-            "Tomorrow at ${next.timeLabel}"
-        } else {
-            "Today at ${next.timeLabel}"
+        val whenText = when (next.dayOffset) {
+            0 -> "Today at ${formatMinutes(next.timeMinutes)}"
+            1 -> "Tomorrow at ${formatMinutes(next.timeMinutes)}"
+            else -> "${dayName(dayValueForOffset(next.dayOffset))} at ${formatMinutes(next.timeMinutes)}"
         }
 
         nextStopText.text = "Next scheduled stop: $whenText — ${next.stopName}"
@@ -142,7 +310,7 @@ class DriverNotifyFragment : Fragment(R.layout.fragment_driver_notify) {
         viewLifecycleOwner.lifecycleScope.launch {
             val ok = firebase.ensureSignedIn()
             if (!ok) {
-                nextStopEstimateText.text = "Estimate error: Firebase sign-in failed."
+                nextStopEstimateText.text = "Estimated students unavailable."
                 return@launch
             }
 
@@ -155,50 +323,82 @@ class DriverNotifyFragment : Fragment(R.layout.fragment_driver_notify) {
 
                 nextStopEstimateText.text = "Estimated students near this stop/time: $count"
             } catch (e: Exception) {
-                val msg = e.message ?: e.javaClass.simpleName
-                nextStopEstimateText.text = "Estimate error: $msg"
+                nextStopEstimateText.text = "Estimated students unavailable."
             }
         }
     }
 
     private fun findNextScheduledStop(): UpcomingStopInfo? {
-        val nowMinutes = LocalTime.now().hour * 60 + LocalTime.now().minute
-        val todaySchedule = ScheduleData.forToday()
+        if (allScheduleEntries.isEmpty()) return null
 
-        for (stop in todaySchedule) {
-            val stopMinutes = parseTimeToMinutes(stop.time)
-            if (stopMinutes >= nowMinutes) {
+        val now = LocalTime.now()
+        val nowMinutes = now.hour * 60 + now.minute
+
+        for (dayOffset in 0..6) {
+            val dayValue = dayValueForOffset(dayOffset)
+
+            val entriesForDay = allScheduleEntries
+                .filter { normalizeDayOfWeek(it.dayOfWeek) == dayValue }
+                .sortedWith(compareBy<ManagerScheduleEntryDoc>({ it.timeMinutes }, { it.stopName.lowercase(Locale.US) }))
+
+            val nextEntry = if (dayOffset == 0) {
+                entriesForDay.firstOrNull { it.timeMinutes >= nowMinutes }
+            } else {
+                entriesForDay.firstOrNull()
+            }
+
+            if (nextEntry != null) {
                 return UpcomingStopInfo(
-                    stopName = stop.name,
-                    timeLabel = stop.time,
-                    timeMinutes = stopMinutes,
-                    isTomorrow = false
+                    stopName = nextEntry.stopName,
+                    timeMinutes = nextEntry.timeMinutes,
+                    dayOffset = dayOffset
                 )
             }
         }
 
-        val tomorrowDay = LocalDate.now().plusDays(1).dayOfWeek
-        val tomorrowSchedule = ScheduleData.forDay(tomorrowDay)
-        val firstTomorrow = tomorrowSchedule.firstOrNull() ?: return null
-
-        return UpcomingStopInfo(
-            stopName = firstTomorrow.name,
-            timeLabel = firstTomorrow.time,
-            timeMinutes = parseTimeToMinutes(firstTomorrow.time),
-            isTomorrow = true
-        )
+        return null
     }
 
-    private fun parseTimeToMinutes(timeText: String): Int {
-        val normalized = timeText.trim().uppercase(Locale.US)
-        val parsed = LocalTime.parse(normalized, timeParser)
-        return parsed.hour * 60 + parsed.minute
+    private fun dayValueForOffset(offset: Int): Int {
+        return LocalDate.now().plusDays(offset.toLong()).dayOfWeek.toManagerDayValue()
     }
 
-    private data class UpcomingStopInfo(
-        val stopName: String,
-        val timeLabel: String,
-        val timeMinutes: Int,
-        val isTomorrow: Boolean
-    )
+    private fun normalizeDayOfWeek(day: Int): Int {
+        return day.coerceIn(1, 7)
+    }
+
+    private fun dayName(day: Int): String {
+        return when (normalizeDayOfWeek(day)) {
+            1 -> "Monday"
+            2 -> "Tuesday"
+            3 -> "Wednesday"
+            4 -> "Thursday"
+            5 -> "Friday"
+            6 -> "Saturday"
+            else -> "Sunday"
+        }
+    }
+
+    private fun formatMinutes(totalMinutes: Int): String {
+        val hour24 = ((totalMinutes / 60) % 24 + 24) % 24
+        val minute = ((totalMinutes % 60) + 60) % 60
+        val amPm = if (hour24 < 12) "AM" else "PM"
+        val hour12 = when (val raw = hour24 % 12) {
+            0 -> 12
+            else -> raw
+        }
+        return String.format(Locale.US, "%d:%02d %s", hour12, minute, amPm)
+    }
+
+    private fun DayOfWeek.toManagerDayValue(): Int {
+        return when (this) {
+            DayOfWeek.MONDAY -> 1
+            DayOfWeek.TUESDAY -> 2
+            DayOfWeek.WEDNESDAY -> 3
+            DayOfWeek.THURSDAY -> 4
+            DayOfWeek.FRIDAY -> 5
+            DayOfWeek.SATURDAY -> 6
+            DayOfWeek.SUNDAY -> 7
+        }
+    }
 }

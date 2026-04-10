@@ -18,6 +18,7 @@ import com.example.protoshuttleapp.data.FirebaseRepo
 import com.example.protoshuttleapp.data.ManagerScheduleEntryDoc
 import com.example.protoshuttleapp.data.ManagerStopDoc
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.checkbox.MaterialCheckBox
 import com.google.android.material.tabs.TabLayout
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.launch
@@ -204,14 +205,21 @@ class ManagerScheduleFragment : Fragment(R.layout.fragment_manager_schedule) {
     }
 
     private fun showScheduleEditor(existing: ManagerScheduleEntryDoc?) {
+        if (existing == null) {
+            showAddScheduleMultiDayEditor()
+        } else {
+            showEditScheduleSingleDayEditor(existing)
+        }
+    }
+
+    private fun showAddScheduleMultiDayEditor() {
         if (currentStops.isEmpty()) {
             Toast.makeText(requireContext(), "Add at least one stop on the map first.", Toast.LENGTH_SHORT).show()
             return
         }
 
         val stopNames = currentStops.map { it.stopName }
-        var selectedMinutes = existing?.timeMinutes ?: (8 * 60)
-        var selectedDay = normalizeDayOfWeek(existing?.dayOfWeek ?: selectedDayOfWeek)
+        var selectedMinutes = 8 * 60
 
         val container = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.VERTICAL
@@ -232,11 +240,136 @@ class ManagerScheduleFragment : Fragment(R.layout.fragment_manager_schedule) {
             )
         }
 
-        val initialStopIndex = if (existing == null) {
-            0
-        } else {
-            currentStops.indexOfFirst { it.id == existing.stopId }.let { if (it >= 0) it else 0 }
+        val daysLabel = TextView(requireContext()).apply {
+            text = "Days of Week"
+            textSize = 16f
         }
+
+        val dayChecks = days.map { day ->
+            MaterialCheckBox(requireContext()).apply {
+                text = dayName(day.toManagerDayValue())
+                isChecked = day.toManagerDayValue() == selectedDayOfWeek
+            }
+        }
+
+        val timeLabel = TextView(requireContext()).apply {
+            text = "Time"
+            textSize = 16f
+        }
+
+        val timeButton = MaterialButton(requireContext()).apply {
+            text = formatMinutes(selectedMinutes)
+            setOnClickListener {
+                val hour = selectedMinutes / 60
+                val minute = selectedMinutes % 60
+
+                TimePickerDialog(
+                    requireContext(),
+                    { _, pickedHour, pickedMinute ->
+                        selectedMinutes = pickedHour * 60 + pickedMinute
+                        text = formatMinutes(selectedMinutes)
+                    },
+                    hour,
+                    minute,
+                    false
+                ).show()
+            }
+        }
+
+        container.addView(stopLabel)
+        container.addView(stopSpinner)
+        container.addView(daysLabel)
+        dayChecks.forEach { container.addView(it) }
+        container.addView(timeLabel)
+        container.addView(timeButton)
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle("Add Schedule Entry")
+            .setView(container)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val selectedStop = currentStops.getOrNull(stopSpinner.selectedItemPosition)
+                if (selectedStop == null) {
+                    Toast.makeText(requireContext(), "Please select a stop.", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+
+                val selectedDays = dayChecks.mapIndexedNotNull { index, checkBox ->
+                    if (checkBox.isChecked) index + 1 else null
+                }
+
+                if (selectedDays.isEmpty()) {
+                    Toast.makeText(requireContext(), "Select at least one day.", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+
+                scheduleStatusText.text = "Saving ${selectedDays.size} schedule entr${if (selectedDays.size == 1) "y" else "ies"}..."
+
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val ok = firebase.ensureSignedIn()
+                    if (!ok) {
+                        scheduleStatusText.text = "Firebase sign-in failed."
+                        return@launch
+                    }
+
+                    try {
+                        for (day in selectedDays) {
+                            firebase.createManagerScheduleEntry(
+                                stopId = selectedStop.id,
+                                stopName = selectedStop.stopName,
+                                dayOfWeek = day,
+                                timeMinutes = selectedMinutes
+                            )
+                        }
+
+                        scheduleStatusText.text =
+                            "Added ${selectedDays.size} schedule entr${if (selectedDays.size == 1) "y" else "ies"}."
+                        dialog.dismiss()
+                    } catch (e: Exception) {
+                        scheduleStatusText.text = "Failed to save entries: ${e.message}"
+                    }
+                }
+            }
+        }
+
+        dialog.show()
+    }
+
+    private fun showEditScheduleSingleDayEditor(existing: ManagerScheduleEntryDoc) {
+        if (currentStops.isEmpty()) {
+            Toast.makeText(requireContext(), "Add at least one stop on the map first.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val stopNames = currentStops.map { it.stopName }
+        var selectedMinutes = existing.timeMinutes
+        var selectedDay = normalizeDayOfWeek(existing.dayOfWeek)
+
+        val container = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+
+        val stopLabel = TextView(requireContext()).apply {
+            text = "Stop"
+            textSize = 16f
+        }
+
+        val stopSpinner = Spinner(requireContext()).apply {
+            adapter = ArrayAdapter(
+                requireContext(),
+                android.R.layout.simple_spinner_dropdown_item,
+                stopNames
+            )
+        }
+
+        val initialStopIndex = currentStops.indexOfFirst { it.id == existing.stopId }
+            .let { if (it >= 0) it else 0 }
         stopSpinner.setSelection(initialStopIndex)
 
         val dayLabel = TextView(requireContext()).apply {
@@ -285,7 +418,7 @@ class ManagerScheduleFragment : Fragment(R.layout.fragment_manager_schedule) {
         container.addView(timeButton)
 
         val dialog = AlertDialog.Builder(requireContext())
-            .setTitle(if (existing == null) "Add Schedule Entry" else "Edit Schedule Entry")
+            .setTitle("Edit Schedule Entry")
             .setView(container)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Save", null)
@@ -300,12 +433,7 @@ class ManagerScheduleFragment : Fragment(R.layout.fragment_manager_schedule) {
                 }
 
                 selectedDay = daySpinner.selectedItemPosition + 1
-
-                scheduleStatusText.text = if (existing == null) {
-                    "Saving schedule entry..."
-                } else {
-                    "Updating schedule entry..."
-                }
+                scheduleStatusText.text = "Updating schedule entry..."
 
                 viewLifecycleOwner.lifecycleScope.launch {
                     val ok = firebase.ensureSignedIn()
@@ -315,24 +443,14 @@ class ManagerScheduleFragment : Fragment(R.layout.fragment_manager_schedule) {
                     }
 
                     try {
-                        if (existing == null) {
-                            firebase.createManagerScheduleEntry(
-                                stopId = selectedStop.id,
-                                stopName = selectedStop.stopName,
-                                dayOfWeek = selectedDay,
-                                timeMinutes = selectedMinutes
-                            )
-                            scheduleStatusText.text = "Added schedule entry."
-                        } else {
-                            firebase.updateManagerScheduleEntry(
-                                entryId = existing.id,
-                                stopId = selectedStop.id,
-                                stopName = selectedStop.stopName,
-                                dayOfWeek = selectedDay,
-                                timeMinutes = selectedMinutes
-                            )
-                            scheduleStatusText.text = "Updated schedule entry."
-                        }
+                        firebase.updateManagerScheduleEntry(
+                            entryId = existing.id,
+                            stopId = selectedStop.id,
+                            stopName = selectedStop.stopName,
+                            dayOfWeek = selectedDay,
+                            timeMinutes = selectedMinutes
+                        )
+                        scheduleStatusText.text = "Updated schedule entry."
                         dialog.dismiss()
                     } catch (e: Exception) {
                         scheduleStatusText.text = "Failed to save entry: ${e.message}"

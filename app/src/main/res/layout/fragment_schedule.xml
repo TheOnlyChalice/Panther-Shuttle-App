@@ -6,7 +6,6 @@
     android:orientation="vertical"
     android:background="@android:color/white">
 
-    <!-- Simple header bar -->
     <TextView
         android:id="@+id/schedule_header"
         android:layout_width="match_parent"
@@ -18,7 +17,6 @@
         android:textColor="#333333"
         android:background="#E0E0E0" />
 
-    <!-- Day-of-week tabs -->
     <com.google.android.material.tabs.TabLayout
         android:id="@+id/scheduleTabs"
         android:layout_width="match_parent"
@@ -28,7 +26,31 @@
         app:tabTextColor="#7A7A7A"
         app:tabMode="scrollable" />
 
-    <!-- The list -->
+    <TextView
+        android:id="@+id/scheduleStatusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textSize="14sp"
+        android:textColor="#666666"
+        android:paddingStart="16dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="4dp" />
+
+    <TextView
+        android:id="@+id/emptyScheduleText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="No schedule entries yet."
+        android:textSize="15sp"
+        android:textColor="#666666"
+        android:visibility="gone"
+        android:paddingStart="16dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="8dp" />
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/scheduleRecycler"
         android:layout_width="match_parent"

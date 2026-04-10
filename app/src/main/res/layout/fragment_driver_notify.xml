@@ -23,12 +23,27 @@
             android:id="@+id/stopDropdownLayout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Send to"
+            android:hint="Send to stop"
             app:endIconMode="dropdown_menu"
             android:layout_marginBottom="12dp">
 
             <com.google.android.material.textfield.MaterialAutoCompleteTextView
                 android:id="@+id/stopDropdown"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="none" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/timeDropdownLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Scheduled time"
+            app:endIconMode="dropdown_menu"
+            android:layout_marginBottom="12dp">
+
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:id="@+id/timeDropdown"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:inputType="none" />
@@ -110,15 +125,6 @@
                 android:textSize="17sp"
                 android:lineSpacingExtra="2dp"
                 android:layout_marginBottom="8dp" />
-
-            <TextView
-                android:id="@+id/nextStopWindowText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Estimate uses favorites within 15 minutes of the scheduled stop time."
-                android:textSize="14sp"
-                android:lineSpacingExtra="1dp"
-                android:layout_marginTop="6dp" />
 
         </LinearLayout>
 

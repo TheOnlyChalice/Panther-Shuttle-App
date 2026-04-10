@@ -12,6 +12,7 @@ import com.example.protoshuttleapp.data.FirebaseRepo
 import com.example.protoshuttleapp.ui.settings.SettingStore
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 class NotifyFragment : Fragment(R.layout.fragment_notify) {
 
@@ -22,7 +23,6 @@ class NotifyFragment : Fragment(R.layout.fragment_notify) {
     private val firebase = FirebaseRepo()
     private var listener: ListenerRegistration? = null
 
-    // ✅ Persist dismisses across app restarts
     private lateinit var dismissStore: DismissedNotificationStore
     private lateinit var dismissedIds: MutableSet<String>
 
@@ -35,7 +35,6 @@ class NotifyFragment : Fragment(R.layout.fragment_notify) {
         recycler = view.findViewById(R.id.notificationsRecycler)
 
         adapter = NotificationsAdapter(items) { item, position ->
-            // ✅ Save dismiss persistently
             dismissedIds.add(item.id.toString())
             dismissStore.save(dismissedIds)
 
@@ -51,7 +50,6 @@ class NotifyFragment : Fragment(R.layout.fragment_notify) {
 
     override fun onResume() {
         super.onResume()
-        // Reload in case it changed elsewhere
         dismissedIds = dismissStore.load()
         startListening()
     }
@@ -64,13 +62,24 @@ class NotifyFragment : Fragment(R.layout.fragment_notify) {
 
     private fun startListening() {
         val store = SettingStore(requireContext())
-        val favStops = store.getFavoriteStops()
+        val favorites = store.getFavoriteStops()
+
+        val stopTimeTags = favorites.map {
+            firebase.makeStopTimeAudienceTag(it.stopName, it.timeMinutes)
+        }
+
+        val stopTags = favorites
             .map { it.stopName.trim() }
             .filter { it.isNotBlank() }
             .distinct()
 
-        // Always include "ALL"
-        val tags = (favStops + listOf("ALL")).distinct().take(10)
+        val tags = mutableListOf<String>().apply {
+            add("ALL")
+            addAll(stopTimeTags)
+            for (tag in stopTags) {
+                if (!contains(tag)) add(tag)
+            }
+        }.take(10)
 
         listener?.remove()
         listener = null
@@ -85,18 +94,19 @@ class NotifyFragment : Fragment(R.layout.fragment_notify) {
             listener = firebase.listenDriverMessagesForAudience(tags) { docs ->
                 val mapped = docs
                     .map { doc ->
-                        val prefix =
-                            if (doc.stopName.isNotBlank() && doc.audience != listOf("ALL")) "[${doc.stopName}] "
-                            else ""
+                        val prefix = when {
+                            doc.stopName.isBlank() || doc.audience == listOf("ALL") -> ""
+                            doc.timeMinutes > 0 -> "[${doc.stopName} • ${formatMinutes(doc.timeMinutes)}] "
+                            else -> "[${doc.stopName}] "
+                        }
 
                         NotificationItem(
-                            id = doc.createdAt, // using createdAt as a stable-ish ID
-                            title = prefix + (doc.title.ifBlank { "Driver Update" }),
+                            id = doc.createdAt,
+                            title = prefix + doc.title.ifBlank { "Driver Update" },
                             message = doc.message,
                             createdAtMillis = doc.createdAt
                         )
                     }
-                    // ✅ Filter out dismissed IDs (persisted)
                     .filter { !dismissedIds.contains(it.id.toString()) }
 
                 items.clear()
@@ -105,6 +115,17 @@ class NotifyFragment : Fragment(R.layout.fragment_notify) {
                 updateBadge(items.size)
             }
         }
+    }
+
+    private fun formatMinutes(totalMinutes: Int): String {
+        val hour24 = ((totalMinutes / 60) % 24 + 24) % 24
+        val minute = ((totalMinutes % 60) + 60) % 60
+        val amPm = if (hour24 < 12) "AM" else "PM"
+        val hour12 = when (val raw = hour24 % 12) {
+            0 -> 12
+            else -> raw
+        }
+        return String.format(Locale.US, "%d:%02d %s", hour12, minute, amPm)
     }
 
     private fun updateBadge(count: Int) {

@@ -11,61 +11,86 @@ import com.example.protoshuttleapp.R
 import com.google.android.material.button.MaterialButton
 
 class FavoriteStopsAdapter(
-    private val stopNames: List<String>,
+    stopNames: List<String>,
+    timeOptionsByStop: Map<String, List<Int>>,
     private val items: MutableList<FavoriteStop>,
-    private val onPickTime: (position: Int) -> Unit,
     private val onRemove: (position: Int) -> Unit,
-    private val onStopChanged: (position: Int, newStop: String) -> Unit
+    private val onStopChanged: (position: Int, newStop: String) -> Unit,
+    private val onTimeChanged: (position: Int, newTime: Int) -> Unit
 ) : RecyclerView.Adapter<FavoriteStopsAdapter.VH>() {
+
+    private val stopNamesMutable = stopNames.toMutableList()
+    private val timeOptionsByStopMutable = timeOptionsByStop.toMutableMap()
 
     class VH(itemView: View) : RecyclerView.ViewHolder(itemView) {
         val stopSpinner: Spinner = itemView.findViewById(R.id.favoriteStopSpinner)
-        val timeButton: MaterialButton = itemView.findViewById(R.id.favoriteTimeButton)
+        val timeSpinner: Spinner = itemView.findViewById(R.id.favoriteTimeSpinner)
         val removeButton: MaterialButton = itemView.findViewById(R.id.favoriteRemoveButton)
-        val subtitle: TextView? = itemView.findViewById(R.id.favoriteSubtitle) // optional if you have it
+        val subtitle: TextView? = itemView.findViewById(R.id.favoriteSubtitle)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-        val v = LayoutInflater.from(parent.context).inflate(R.layout.item_favorite_stop, parent, false)
+        val v = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_favorite_stop, parent, false)
         return VH(v)
     }
 
     override fun onBindViewHolder(holder: VH, position: Int) {
         val item = items[position]
+        val context = holder.itemView.context
 
-        // Spinner setup (set adapter once per bind; safe + simple for now)
-        val spinnerAdapter = ArrayAdapter(
-            holder.itemView.context,
+        val stopAdapter = ArrayAdapter(
+            context,
             android.R.layout.simple_spinner_item,
-            stopNames
-        ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
-
-        holder.stopSpinner.adapter = spinnerAdapter
-
-        // Set selection without triggering "changed" callback accidentally
-        val idx = stopNames.indexOf(item.stopName).let { if (it >= 0) it else 0 }
-        if (holder.stopSpinner.selectedItemPosition != idx) {
-            holder.stopSpinner.setSelection(idx, false)
+            stopNamesMutable
+        ).also {
+            it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         }
 
-        // IMPORTANT: remove any old listener before adding a new one
+        holder.stopSpinner.adapter = stopAdapter
+
+        val selectedStopIndex = stopNamesMutable.indexOf(item.stopName).let { if (it >= 0) it else 0 }
+        if (holder.stopSpinner.selectedItemPosition != selectedStopIndex) {
+            holder.stopSpinner.setSelection(selectedStopIndex, false)
+        }
+
+        val currentStop = stopNamesMutable.getOrNull(selectedStopIndex)
+        val timeOptions = timeOptionsByStopMutable[currentStop].orEmpty()
+        val timeLabels = timeOptions.map { formatTime(it) }
+
+        val timeAdapter = ArrayAdapter(
+            context,
+            android.R.layout.simple_spinner_item,
+            timeLabels
+        ).also {
+            it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+
+        holder.timeSpinner.adapter = timeAdapter
+
+        val selectedTimeIndex = timeOptions.indexOf(item.timeMinutes).let { if (it >= 0) it else 0 }
+        if (holder.timeSpinner.selectedItemPosition != selectedTimeIndex) {
+            holder.timeSpinner.setSelection(selectedTimeIndex, false)
+        }
+
         holder.stopSpinner.onItemSelectedListener = SimpleItemSelectedListener { selectedIndex ->
             val posNow = holder.bindingAdapterPosition
             if (posNow == RecyclerView.NO_POSITION) return@SimpleItemSelectedListener
 
-            val newStop = stopNames.getOrNull(selectedIndex) ?: return@SimpleItemSelectedListener
+            val newStop = stopNamesMutable.getOrNull(selectedIndex) ?: return@SimpleItemSelectedListener
             if (items[posNow].stopName != newStop) {
                 onStopChanged(posNow, newStop)
             }
         }
 
-        holder.timeButton.text = formatTime(item.timeMinutes)
-
-        // ✅ Use bindingAdapterPosition at CLICK time
-        holder.timeButton.setOnClickListener {
+        holder.timeSpinner.onItemSelectedListener = SimpleItemSelectedListener { selectedIndex ->
             val posNow = holder.bindingAdapterPosition
-            if (posNow == RecyclerView.NO_POSITION) return@setOnClickListener
-            onPickTime(posNow)
+            if (posNow == RecyclerView.NO_POSITION) return@SimpleItemSelectedListener
+
+            val newTime = timeOptions.getOrNull(selectedIndex) ?: return@SimpleItemSelectedListener
+            if (items[posNow].timeMinutes != newTime) {
+                onTimeChanged(posNow, newTime)
+            }
         }
 
         holder.removeButton.setOnClickListener {
@@ -82,6 +107,19 @@ class FavoriteStopsAdapter(
     fun replaceAll(newItems: List<FavoriteStop>) {
         items.clear()
         items.addAll(newItems)
+        notifyDataSetChanged()
+    }
+
+    fun updateScheduleOptions(
+        stopNames: List<String>,
+        timeOptionsByStop: Map<String, List<Int>>
+    ) {
+        stopNamesMutable.clear()
+        stopNamesMutable.addAll(stopNames)
+
+        timeOptionsByStopMutable.clear()
+        timeOptionsByStopMutable.putAll(timeOptionsByStop)
+
         notifyDataSetChanged()
     }
 

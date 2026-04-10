@@ -1,6 +1,5 @@
 package com.example.protoshuttleapp.ui.settings
 
-import android.app.TimePickerDialog
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -11,10 +10,11 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.protoshuttleapp.R
 import com.example.protoshuttleapp.data.FirebaseRepo
-import com.example.protoshuttleapp.ui.schedule.ScheduleData
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.switchmaterial.SwitchMaterial
+import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 class SettingsFragment : Fragment(R.layout.fragment_settings) {
 
@@ -29,8 +29,12 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
     private lateinit var favoritesAdapter: FavoriteStopsAdapter
 
     private val firebase = FirebaseRepo()
-    private var isFirebaseReady = false
-    private var favoritesListener: com.google.firebase.firestore.ListenerRegistration? = null
+
+    private var favoritesListener: ListenerRegistration? = null
+    private var managerScheduleListener: ListenerRegistration? = null
+
+    private var availableStopNames: List<String> = emptyList()
+    private var availableTimesByStop: Map<String, List<Int>> = emptyMap()
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -44,20 +48,15 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         addFavoriteBtn = view.findViewById(R.id.addFavoriteStopButton)
         favoritesRecycler = view.findViewById(R.id.favoriteStopsRecycler)
 
-        val stopNames = try {
-            ScheduleData.stopNames()
-        } catch (_: Exception) {
-            listOf("Campus", "Panther Bay", "Mary Star")
-        }
-
         val initialFavorites = store.getFavoriteStops().toMutableList()
 
         favoritesAdapter = FavoriteStopsAdapter(
-            stopNames = stopNames,
+            stopNames = emptyList(),
+            timeOptionsByStop = emptyMap(),
             items = initialFavorites,
-            onPickTime = { position -> showTimePicker(position) },
             onRemove = { position -> removeFavorite(position) },
-            onStopChanged = { position, newStop -> updateFavoriteStop(position, newStop) }
+            onStopChanged = { position, newStop -> updateFavoriteStop(position, newStop) },
+            onTimeChanged = { position, newTime -> updateFavoriteTime(position, newTime) }
         )
 
         favoritesRecycler.layoutManager = LinearLayoutManager(requireContext())
@@ -81,16 +80,75 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             store.stopApproachingOn = isChecked
         }
 
-        viewLifecycleOwner.lifecycleScope.launch {
-            isFirebaseReady = firebase.ensureSignedIn()
-            if (!isFirebaseReady) {
-                context?.let {
-                    Toast.makeText(it, "Firebase offline; using local favorites only.", Toast.LENGTH_SHORT).show()
+        startFirebaseListeners()
+
+        addFavoriteBtn.setOnClickListener {
+            val firstStop = availableStopNames.firstOrNull()
+            if (firstStop == null) {
+                Toast.makeText(
+                    requireContext(),
+                    "Manager schedule has not loaded yet.",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@setOnClickListener
+            }
+
+            val firstTime = availableTimesByStop[firstStop]?.firstOrNull()
+            if (firstTime == null) {
+                Toast.makeText(
+                    requireContext(),
+                    "No valid times found for that stop yet.",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@setOnClickListener
+            }
+
+            val newFav = FavoriteStop(stopName = firstStop, timeMinutes = firstTime)
+            val newList = favoritesAdapter.getItems().toMutableList().apply { add(newFav) }
+
+            store.setFavoriteStops(newList)
+            favoritesAdapter.replaceAll(newList)
+
+            viewLifecycleOwner.lifecycleScope.launch {
+                val ok = firebase.ensureSignedIn()
+                if (!ok) {
+                    Toast.makeText(requireContext(), "Saved locally (Firebase offline).", Toast.LENGTH_SHORT).show()
+                    return@launch
                 }
+
+                try {
+                    firebase.upsertFavoriteStop(newFav.stopName, newFav.timeMinutes)
+                } catch (e: Exception) {
+                    Log.e("SettingsFragment", "upsertFavoriteStop failed", e)
+                    Toast.makeText(requireContext(), "Saved locally (sync failed).", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    override fun onDestroyView() {
+        favoritesListener?.remove()
+        managerScheduleListener?.remove()
+        favoritesListener = null
+        managerScheduleListener = null
+        super.onDestroyView()
+    }
+
+    private fun startFirebaseListeners() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val ok = firebase.ensureSignedIn()
+            if (!ok) {
+                Toast.makeText(
+                    requireContext(),
+                    "Firebase offline; using local favorites only.",
+                    Toast.LENGTH_SHORT
+                ).show()
                 return@launch
             }
 
             favoritesListener?.remove()
+            managerScheduleListener?.remove()
+
             favoritesListener = firebase.listenFavoriteStops { docs ->
                 val mapped = docs
                     .map { FavoriteStop(stopName = it.stopName, timeMinutes = it.timeMinutes) }
@@ -99,7 +157,6 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                 store.setFavoriteStops(mapped)
                 favoritesAdapter.replaceAll(mapped)
 
-                // Backfill / refresh the top-level index for this user
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
                         firebase.rebuildFavoriteStopIndexForCurrentUser(docs)
@@ -107,50 +164,91 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                         Log.e("SettingsFragment", "rebuildFavoriteStopIndexForCurrentUser failed", e)
                     }
                 }
-            }
-        }
 
-        addFavoriteBtn.setOnClickListener {
-            if (stopNames.isEmpty()) {
-                Toast.makeText(requireContext(), "No stops available yet.", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
+                reconcileFavoritesWithManagerSchedule()
             }
 
-            val defaultStop = stopNames.first()
-            val defaultTime = 8 * 60
-            val newFav = FavoriteStop(stopName = defaultStop, timeMinutes = defaultTime)
+            managerScheduleListener = firebase.listenManagerSchedule { entries ->
+                val stopNames = entries
+                    .map { it.stopName.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .sorted()
 
-            val newList = favoritesAdapter.getItems().toMutableList()
-            newList.add(newFav)
-
-            store.setFavoriteStops(newList)
-            favoritesAdapter.replaceAll(newList)
-
-            viewLifecycleOwner.lifecycleScope.launch {
-                val ok = firebase.ensureSignedIn()
-                if (!ok) {
-                    context?.let {
-                        Toast.makeText(it, "Saved locally (Firebase offline).", Toast.LENGTH_SHORT).show()
+                val timesByStop = entries
+                    .groupBy { it.stopName.trim() }
+                    .mapValues { (_, stopEntries) ->
+                        stopEntries
+                            .map { it.timeMinutes }
+                            .distinct()
+                            .sorted()
                     }
-                    return@launch
-                }
+                    .filterKeys { it.isNotBlank() }
 
-                try {
-                    firebase.upsertFavoriteStop(newFav.stopName, newFav.timeMinutes)
-                } catch (e: Exception) {
-                    Log.e("SettingsFragment", "upsertFavoriteStop failed", e)
-                    context?.let {
-                        Toast.makeText(it, "Saved locally (sync failed).", Toast.LENGTH_SHORT).show()
-                    }
-                }
+                availableStopNames = stopNames
+                availableTimesByStop = timesByStop
+
+                favoritesAdapter.updateScheduleOptions(
+                    stopNames = availableStopNames,
+                    timeOptionsByStop = availableTimesByStop
+                )
+
+                reconcileFavoritesWithManagerSchedule()
             }
         }
     }
 
-    override fun onDestroyView() {
-        favoritesListener?.remove()
-        favoritesListener = null
-        super.onDestroyView()
+    private fun reconcileFavoritesWithManagerSchedule() {
+        if (availableStopNames.isEmpty()) return
+
+        val current = favoritesAdapter.getItems()
+        if (current.isEmpty()) return
+
+        val replacements = mutableListOf<Pair<FavoriteStop, FavoriteStop>>()
+        val updated = current.map { old ->
+            val normalizedStop = if (old.stopName in availableStopNames) {
+                old.stopName
+            } else {
+                availableStopNames.first()
+            }
+
+            val validTimes = availableTimesByStop[normalizedStop].orEmpty()
+            val normalizedTime = when {
+                validTimes.isEmpty() -> old.timeMinutes
+                old.timeMinutes in validTimes -> old.timeMinutes
+                else -> nearestTime(old.timeMinutes, validTimes)
+            }
+
+            val newItem = FavoriteStop(
+                stopName = normalizedStop,
+                timeMinutes = normalizedTime
+            )
+
+            if (newItem != old) {
+                replacements.add(old to newItem)
+            }
+
+            newItem
+        }
+
+        if (replacements.isEmpty()) return
+
+        store.setFavoriteStops(updated)
+        favoritesAdapter.replaceAll(updated)
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val ok = firebase.ensureSignedIn()
+            if (!ok) return@launch
+
+            for ((oldItem, newItem) in replacements) {
+                try {
+                    firebase.deleteFavoriteStop(oldItem.stopName, oldItem.timeMinutes)
+                    firebase.upsertFavoriteStop(newItem.stopName, newItem.timeMinutes)
+                } catch (e: Exception) {
+                    Log.e("SettingsFragment", "reconcileFavoritesWithManagerSchedule failed", e)
+                }
+            }
+        }
     }
 
     private fun removeFavorite(position: Int) {
@@ -180,7 +278,19 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         if (position !in list.indices) return
 
         val old = list[position]
-        val updated = old.copy(stopName = newStop)
+        val validTimes = availableTimesByStop[newStop].orEmpty()
+
+        val newTime = when {
+            validTimes.isEmpty() -> old.timeMinutes
+            old.timeMinutes in validTimes -> old.timeMinutes
+            else -> validTimes.first()
+        }
+
+        val updated = old.copy(
+            stopName = newStop,
+            timeMinutes = newTime
+        )
+
         list[position] = updated
 
         store.setFavoriteStops(list)
@@ -199,37 +309,34 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         }
     }
 
-    private fun showTimePicker(position: Int) {
+    private fun updateFavoriteTime(position: Int, newTime: Int) {
         val list = favoritesAdapter.getItems().toMutableList()
         if (position !in list.indices) return
 
-        val current = list[position]
-        val h = (current.timeMinutes / 60) % 24
-        val m = current.timeMinutes % 60
+        val old = list[position]
+        if (old.timeMinutes == newTime) return
 
-        TimePickerDialog(
-            requireContext(),
-            { _, hourOfDay, minute ->
-                val updatedMinutes = hourOfDay * 60 + minute
-                val updated = current.copy(timeMinutes = updatedMinutes)
-                list[position] = updated
+        val updated = old.copy(timeMinutes = newTime)
+        list[position] = updated
 
-                store.setFavoriteStops(list)
-                favoritesAdapter.replaceAll(list)
+        store.setFavoriteStops(list)
+        favoritesAdapter.replaceAll(list)
 
-                viewLifecycleOwner.lifecycleScope.launch {
-                    val ok = firebase.ensureSignedIn()
-                    if (!ok) return@launch
+        viewLifecycleOwner.lifecycleScope.launch {
+            val ok = firebase.ensureSignedIn()
+            if (!ok) return@launch
 
-                    try {
-                        firebase.deleteFavoriteStop(current.stopName, current.timeMinutes)
-                        firebase.upsertFavoriteStop(updated.stopName, updated.timeMinutes)
-                    } catch (e: Exception) {
-                        Log.e("SettingsFragment", "time update sync failed", e)
-                    }
-                }
-            },
-            h, m, false
-        ).show()
+            try {
+                firebase.deleteFavoriteStop(old.stopName, old.timeMinutes)
+                firebase.upsertFavoriteStop(updated.stopName, updated.timeMinutes)
+            } catch (e: Exception) {
+                Log.e("SettingsFragment", "updateFavoriteTime sync failed", e)
+            }
+        }
+    }
+
+    private fun nearestTime(target: Int, options: List<Int>): Int {
+        if (options.isEmpty()) return target
+        return options.minByOrNull { abs(it - target) } ?: target
     }
 }
