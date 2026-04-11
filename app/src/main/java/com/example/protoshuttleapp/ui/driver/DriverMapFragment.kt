@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Bundle
 import android.os.Looper
+import android.util.Log
 import android.view.View
 import android.widget.TextView
 import android.widget.Toast
@@ -30,8 +31,10 @@ import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
+import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlin.math.abs
 
 class DriverMapFragment : Fragment(R.layout.fragment_driver_map), OnMapReadyCallback {
@@ -42,6 +45,7 @@ class DriverMapFragment : Fragment(R.layout.fragment_driver_map), OnMapReadyCall
         private const val PUBLISH_EVERY_MS = 2500L
         private val DEFAULT_CAMPUS = LatLng(28.0634, -80.6225)
         private const val DEFAULT_ZOOM = 15f
+        private const val TAG = "DriverMapFragment"
     }
 
     private var map: GoogleMap? = null
@@ -49,6 +53,8 @@ class DriverMapFragment : Fragment(R.layout.fragment_driver_map), OnMapReadyCall
     private var locationCallback: LocationCallback? = null
 
     private val firebase = FirebaseRepo()
+    private lateinit var driverSettingStore: DriverSettingStore
+
     private var firebaseReady = false
     private var stopsListener: ListenerRegistration? = null
 
@@ -58,12 +64,14 @@ class DriverMapFragment : Fragment(R.layout.fragment_driver_map), OnMapReadyCall
 
     private var centeredOnce = false
     private var lastPublishAt = 0L
+    private var wasSharingLiveLocation = false
 
     private lateinit var status: TextView
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        driverSettingStore = DriverSettingStore(requireContext())
         status = view.findViewById(R.id.broadcastStatus)
         fused = LocationServices.getFusedLocationProviderClient(requireActivity())
 
@@ -81,9 +89,13 @@ class DriverMapFragment : Fragment(R.layout.fragment_driver_map), OnMapReadyCall
 
         viewLifecycleOwner.lifecycleScope.launch {
             firebaseReady = firebase.ensureSignedIn()
-            status.text = if (firebaseReady) "Broadcasting location ✓" else "Firebase offline"
+            refreshBroadcastStatus()
+
             if (firebaseReady) {
                 startListeningToStops()
+                if (!driverSettingStore.shareLiveLocationOn) {
+                    clearLiveLocationOnServer()
+                }
             }
         }
 
@@ -170,24 +182,6 @@ class DriverMapFragment : Fragment(R.layout.fragment_driver_map), OnMapReadyCall
                 override fun onLocationResult(result: LocationResult) {
                     val loc = result.lastLocation ?: return
                     handleLocation(loc, animate = true)
-
-                    val now = System.currentTimeMillis()
-                    if (firebaseReady && now - lastPublishAt >= PUBLISH_EVERY_MS) {
-                        lastPublishAt = now
-                        viewLifecycleOwner.lifecycleScope.launch {
-                            try {
-                                firebase.setLiveDriverLocation(
-                                    routeId = "main",
-                                    latitude = loc.latitude,
-                                    longitude = loc.longitude,
-                                    bearing = if (loc.hasBearing()) loc.bearing else null,
-                                    speedMps = if (loc.hasSpeed()) loc.speed else null
-                                )
-                            } catch (e: Exception) {
-                                status.text = "Broadcast failed (offline?)"
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -225,6 +219,64 @@ class DriverMapFragment : Fragment(R.layout.fragment_driver_map), OnMapReadyCall
         } else {
             googleMap.animateCamera(CameraUpdateFactory.newCameraPosition(cam))
         }
+
+        val shouldShareLiveLocation = driverSettingStore.shareLiveLocationOn
+
+        if (!shouldShareLiveLocation) {
+            if (wasSharingLiveLocation) {
+                wasSharingLiveLocation = false
+                viewLifecycleOwner.lifecycleScope.launch {
+                    clearLiveLocationOnServer()
+                }
+            }
+            status.text = "Live location sharing off"
+            return
+        }
+
+        wasSharingLiveLocation = true
+        refreshBroadcastStatus()
+
+        val now = System.currentTimeMillis()
+        if (firebaseReady && now - lastPublishAt >= PUBLISH_EVERY_MS) {
+            lastPublishAt = now
+            viewLifecycleOwner.lifecycleScope.launch {
+                try {
+                    firebase.setLiveDriverLocation(
+                        routeId = "main",
+                        latitude = loc.latitude,
+                        longitude = loc.longitude,
+                        bearing = if (loc.hasBearing()) loc.bearing else null,
+                        speedMps = if (loc.hasSpeed()) loc.speed else null
+                    )
+                } catch (e: Exception) {
+                    status.text = "Broadcast failed (offline?)"
+                }
+            }
+        }
+    }
+
+    private suspend fun clearLiveLocationOnServer() {
+        if (!firebaseReady) return
+
+        try {
+            FirebaseFirestore.getInstance()
+                .collection("routes")
+                .document("main")
+                .collection("live")
+                .document("driver")
+                .delete()
+                .await()
+        } catch (e: Exception) {
+            Log.e(TAG, "clearLiveLocationOnServer failed", e)
+        }
+    }
+
+    private fun refreshBroadcastStatus() {
+        status.text = when {
+            !driverSettingStore.shareLiveLocationOn -> "Live location sharing off"
+            firebaseReady -> "Broadcasting location ✓"
+            else -> "Firebase offline"
+        }
     }
 
     private fun animateMarker(marker: Marker, to: LatLng) {
@@ -242,6 +294,16 @@ class DriverMapFragment : Fragment(R.layout.fragment_driver_map), OnMapReadyCall
 
     override fun onResume() {
         super.onResume()
+
+        refreshBroadcastStatus()
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            if (firebaseReady && !driverSettingStore.shareLiveLocationOn) {
+                wasSharingLiveLocation = false
+                clearLiveLocationOnServer()
+            }
+        }
+
         if (map != null) {
             enableOrRequest()
             if (firebaseReady) {

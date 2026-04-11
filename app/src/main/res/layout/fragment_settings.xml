@@ -11,7 +11,6 @@
         android:orientation="vertical"
         android:paddingBottom="18dp">
 
-        <!-- Header bar -->
         <TextView
             android:id="@+id/settings_header"
             android:layout_width="match_parent"
@@ -23,11 +22,10 @@
             android:textColor="#333333"
             android:background="#E0E0E0" />
 
-        <!-- General -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="General"
+            android:text="Favorite Stops"
             android:textStyle="bold"
             android:textColor="#111111"
             android:paddingLeft="16dp"
@@ -35,7 +33,6 @@
             android:paddingTop="14dp"
             android:paddingBottom="8dp" />
 
-        <!-- Favorite Stops section -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -79,7 +76,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Add one or more default stops with a time."
+                    android:text="Pick from the manager's real stop names and scheduled times."
                     android:textSize="12sp"
                     android:textColor="#6A6A6A"
                     android:layout_marginTop="6dp"
@@ -95,7 +92,17 @@
 
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Units -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="General"
+            android:textStyle="bold"
+            android:textColor="#111111"
+            android:paddingLeft="16dp"
+            android:paddingRight="16dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="8dp" />
+
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -146,19 +153,6 @@
 
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Notifications -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Notifications"
-            android:textStyle="bold"
-            android:textColor="#111111"
-            android:paddingLeft="16dp"
-            android:paddingRight="16dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp" />
-
-        <!-- Service Alerts -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -186,7 +180,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Service Alerts"
+                        android:text="Notify Before Favorite Stops"
                         android:textStyle="bold"
                         android:textSize="14sp"
                         android:textColor="#222222" />
@@ -194,64 +188,14 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Delays, outages, and service changes."
+                        android:text="Send a device reminder about 15 minutes before a matching favorite stop."
                         android:textSize="12sp"
                         android:textColor="#6A6A6A"
                         android:layout_marginTop="3dp" />
                 </LinearLayout>
 
                 <com.google.android.material.switchmaterial.SwitchMaterial
-                    android:id="@+id/serviceAlertsSwitch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" />
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Stop Approaching -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginLeft="16dp"
-            android:layout_marginRight="16dp"
-            android:layout_marginBottom="18dp"
-            app:cardCornerRadius="14dp"
-            app:cardElevation="0dp"
-            app:strokeWidth="1dp"
-            app:strokeColor="#E6E6E6">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:padding="14dp">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Stop Approaching"
-                        android:textStyle="bold"
-                        android:textSize="14sp"
-                        android:textColor="#222222" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Alert me when a stop is nearby."
-                        android:textSize="12sp"
-                        android:textColor="#6A6A6A"
-                        android:layout_marginTop="3dp" />
-                </LinearLayout>
-
-                <com.google.android.material.switchmaterial.SwitchMaterial
-                    android:id="@+id/stopApproachingSwitch"
+                    android:id="@+id/notifyBeforeFavoriteStopsSwitch"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content" />
             </LinearLayout>

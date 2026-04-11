@@ -7,10 +7,12 @@ import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.protoshuttleapp.R
+import com.example.protoshuttleapp.data.DriverMessageDoc
 import com.example.protoshuttleapp.data.FirebaseRepo
 import com.example.protoshuttleapp.data.ManagerScheduleEntryDoc
+import com.example.protoshuttleapp.ui.DismissedNotificationStore
 import com.example.protoshuttleapp.ui.MainActivity
-import com.example.protoshuttleapp.ui.NotificationStore
+import com.example.protoshuttleapp.ui.settings.FavoriteStop
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.Job
@@ -29,18 +31,28 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
     private lateinit var estimatedStudentsText: TextView
 
     private val firebase = FirebaseRepo()
+
     private var scheduleListener: ListenerRegistration? = null
+    private var favoritesListener: ListenerRegistration? = null
+    private var driverMessagesListener: ListenerRegistration? = null
+
     private var clockJob: Job? = null
     private var estimateJob: Job? = null
 
     private val allScheduleEntries = mutableListOf<ManagerScheduleEntryDoc>()
+    private val currentFavorites = mutableListOf<FavoriteStop>()
+    private val currentDriverMessages = mutableListOf<DriverMessageDoc>()
 
     private var cachedEstimateKey: String? = null
     private var cachedEstimateValue: Int? = null
     private var estimateInFlightKey: String? = null
 
+    private lateinit var dismissedStore: DismissedNotificationStore
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+
+        dismissedStore = DismissedNotificationStore(requireContext())
 
         latestContainer = view.findViewById(R.id.latestContainer)
         nextStopText = view.findViewById(R.id.nextStopText)
@@ -54,20 +66,27 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             switchToTab(R.id.navigation_schedule)
         }
 
-        refreshLatestNotifications()
+        renderLatestDriverNotifications()
         startScheduleListener()
+        startFavoritesAndDriverNotificationListeners()
         startClockTicker()
     }
 
     override fun onResume() {
         super.onResume()
-        refreshLatestNotifications()
         renderNextStopCard()
+        renderLatestDriverNotifications()
     }
 
     override fun onDestroyView() {
         scheduleListener?.remove()
         scheduleListener = null
+
+        favoritesListener?.remove()
+        favoritesListener = null
+
+        driverMessagesListener?.remove()
+        driverMessagesListener = null
 
         clockJob?.cancel()
         clockJob = null
@@ -83,29 +102,6 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             (activity as? MainActivity)?.findViewById<BottomNavigationView>(R.id.navView)
 
         bottomNav?.selectedItemId = menuItemId
-    }
-
-    private fun refreshLatestNotifications() {
-        latestContainer.removeAllViews()
-
-        val latest = NotificationStore.latestActive(limit = 2)
-
-        if (latest.isEmpty()) {
-            val tv = TextView(requireContext()).apply {
-                text = "• No notifications yet"
-                textSize = 14f
-            }
-            latestContainer.addView(tv)
-            return
-        }
-
-        for (n in latest) {
-            val tv = TextView(requireContext()).apply {
-                text = "• ${n.title} — ${n.message}"
-                textSize = 14f
-            }
-            latestContainer.addView(tv)
-        }
     }
 
     private fun startScheduleListener() {
@@ -129,6 +125,111 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         }
     }
 
+    private fun startFavoritesAndDriverNotificationListeners() {
+        renderLatestDriverNotifications()
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val ok = firebase.ensureSignedIn()
+            if (!ok) {
+                showNoDriverNotifications("• Driver notifications unavailable")
+                return@launch
+            }
+
+            favoritesListener?.remove()
+            driverMessagesListener?.remove()
+
+            favoritesListener = firebase.listenFavoriteStops { docs ->
+                currentFavorites.clear()
+                currentFavorites.addAll(
+                    docs.map {
+                        FavoriteStop(
+                            stopName = it.stopName,
+                            timeMinutes = it.timeMinutes
+                        )
+                    }
+                )
+                resubscribeToDriverMessages()
+            }
+        }
+    }
+
+    private fun resubscribeToDriverMessages() {
+        val stopTimeTags = currentFavorites.map {
+            firebase.makeStopTimeAudienceTag(it.stopName, it.timeMinutes)
+        }
+
+        val stopTags = currentFavorites
+            .map { it.stopName.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+        val tags = mutableListOf<String>().apply {
+            add("ALL")
+            addAll(stopTimeTags)
+            for (tag in stopTags) {
+                if (!contains(tag)) add(tag)
+            }
+        }.take(10)
+
+        driverMessagesListener?.remove()
+        driverMessagesListener = firebase.listenDriverMessagesForAudience(tags, limit = 25) { docs ->
+            currentDriverMessages.clear()
+            currentDriverMessages.addAll(docs.sortedByDescending { it.createdAt })
+            renderLatestDriverNotifications()
+        }
+    }
+
+    private fun renderLatestDriverNotifications() {
+        latestContainer.removeAllViews()
+
+        val dismissedIds = dismissedStore.load()
+
+        val latestThree = currentDriverMessages
+            .filter { !dismissedIds.contains(it.createdAt.toString()) }
+            .sortedByDescending { it.createdAt }
+            .take(3)
+
+        if (latestThree.isEmpty()) {
+            showNoDriverNotifications("• No driver notifications yet")
+            return
+        }
+
+        for (doc in latestThree) {
+            val line = buildNotificationLine(doc)
+            val tv = TextView(requireContext()).apply {
+                text = line
+                textSize = 14f
+            }
+            latestContainer.addView(tv)
+        }
+    }
+
+    private fun showNoDriverNotifications(text: String) {
+        latestContainer.removeAllViews()
+        val tv = TextView(requireContext()).apply {
+            this.text = text
+            textSize = 14f
+        }
+        latestContainer.addView(tv)
+    }
+
+    private fun buildNotificationLine(doc: DriverMessageDoc): String {
+        val prefix = when {
+            doc.stopName.isBlank() || doc.audience == listOf("ALL") -> ""
+            doc.timeMinutes > 0 -> "[${doc.stopName} • ${formatClockTime(doc.timeMinutes)}] "
+            else -> "[${doc.stopName}] "
+        }
+
+        val title = doc.title.ifBlank { "Driver Update" }
+        val message = doc.message.trim()
+
+        return if (message.isBlank()) {
+            "• $prefix$title"
+        } else {
+            "• $prefix$title — $message"
+        }
+    }
+
     private fun startClockTicker() {
         clockJob?.cancel()
         clockJob = viewLifecycleOwner.lifecycleScope.launch {
@@ -146,7 +247,12 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
 
         val nextEntry = allScheduleEntries
             .filter { normalizeDayOfWeek(it.dayOfWeek) == today }
-            .sortedWith(compareBy<ManagerScheduleEntryDoc>({ it.timeMinutes }, { it.stopName.lowercase(Locale.US) }))
+            .sortedWith(
+                compareBy<ManagerScheduleEntryDoc>(
+                    { it.timeMinutes },
+                    { it.stopName.lowercase(Locale.US) }
+                )
+            )
             .firstOrNull { it.timeMinutes >= nowMinutes }
 
         if (nextEntry == null) {
@@ -218,6 +324,17 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             minutes == 1 -> "ETA 1 min"
             else -> "ETA $minutes min"
         }
+    }
+
+    private fun formatClockTime(totalMinutes: Int): String {
+        val hour24 = ((totalMinutes / 60) % 24 + 24) % 24
+        val minute = ((totalMinutes % 60) + 60) % 60
+        val amPm = if (hour24 < 12) "AM" else "PM"
+        val hour12 = when (val raw = hour24 % 12) {
+            0 -> 12
+            else -> raw
+        }
+        return String.format(Locale.US, "%d:%02d %s", hour12, minute, amPm)
     }
 
     private fun normalizeDayOfWeek(day: Int): Int {

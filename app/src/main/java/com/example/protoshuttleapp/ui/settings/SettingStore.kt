@@ -8,20 +8,14 @@ class SettingStore(context: Context) {
 
     private val prefs = context.getSharedPreferences("panther_settings", Context.MODE_PRIVATE)
 
-    // --- Existing-ish toggles (keep these names stable) ---
     var useMiles: Boolean
         get() = prefs.getBoolean("useMiles", true)
         set(value) = prefs.edit().putBoolean("useMiles", value).apply()
 
-    var serviceAlertsOn: Boolean
-        get() = prefs.getBoolean("serviceAlertsOn", true)
-        set(value) = prefs.edit().putBoolean("serviceAlertsOn", value).apply()
+    var notifyBeforeFavoriteStopsOn: Boolean
+        get() = prefs.getBoolean("notifyBeforeFavoriteStopsOn", true)
+        set(value) = prefs.edit().putBoolean("notifyBeforeFavoriteStopsOn", value).apply()
 
-    var stopApproachingOn: Boolean
-        get() = prefs.getBoolean("stopApproachingOn", true)
-        set(value) = prefs.edit().putBoolean("stopApproachingOn", value).apply()
-
-    // --- Favorite Stops (stop + time), stored permanently ---
     fun getFavoriteStops(): List<FavoriteStop> {
         val raw = prefs.getString("favoriteStopsJson", "[]") ?: "[]"
         return try {
@@ -30,8 +24,10 @@ class SettingStore(context: Context) {
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
                 val stop = obj.optString("stopName", "")
-                val time = obj.optInt("timeMinutes", 8 * 60) // default 8:00 AM
-                if (stop.isNotBlank()) out.add(FavoriteStop(stopName = stop, timeMinutes = time))
+                val time = obj.optInt("timeMinutes", 8 * 60)
+                if (stop.isNotBlank()) {
+                    out.add(FavoriteStop(stopName = stop, timeMinutes = time))
+                }
             }
             out
         } catch (_: Exception) {

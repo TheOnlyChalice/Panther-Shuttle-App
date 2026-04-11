@@ -1,12 +1,14 @@
 package com.example.protoshuttleapp.ui
 
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
-import android.view.View
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.isVisible
+import androidx.core.content.ContextCompat
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
 import com.example.protoshuttleapp.R
@@ -20,6 +22,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bottomNav: BottomNavigationView
 
     private var notificationsBadge: BadgeDrawable? = null
+    private lateinit var favoriteStopReminderManager: FavoriteStopReminderManager
+
+    private val notificationsPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+            // no-op; reminders will work automatically once permission is granted
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,8 +35,6 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // If your activity_main.xml has a Toolbar with id "toolbar"
-        // this enables the top-right 3-dot menu.
         setSupportActionBar(binding.toolbar)
 
         bottomNav = binding.navView
@@ -39,18 +45,23 @@ class MainActivity : AppCompatActivity() {
 
         bottomNav.setupWithNavController(navController)
 
-        // Setup badge (hidden by default)
         notificationsBadge = bottomNav.getOrCreateBadge(R.id.navigation_notify).apply {
             isVisible = false
         }
 
-        // If you want to update badge immediately on launch:
-        // updateNotificationBadge(NotificationStore.activeCount())
+        requestNotificationsPermissionIfNeeded()
+
+        favoriteStopReminderManager = FavoriteStopReminderManager(this)
+        favoriteStopReminderManager.start()
     }
 
-    /**
-     * Called by fragments (Notify/Home) to keep the badge accurate.
-     */
+    override fun onDestroy() {
+        if (::favoriteStopReminderManager.isInitialized) {
+            favoriteStopReminderManager.stop()
+        }
+        super.onDestroy()
+    }
+
     fun updateNotificationBadge(count: Int) {
         val badge = notificationsBadge ?: bottomNav.getOrCreateBadge(R.id.navigation_notify)
         notificationsBadge = badge
@@ -64,7 +75,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // --- Top-right menu (Switch Role) ---
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.top_app_menu, menu)
         return true
@@ -73,7 +83,6 @@ class MainActivity : AppCompatActivity() {
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             R.id.action_switch_role -> {
-                // Go back to the 3-button role select screen
                 val i = Intent(this, RoleSelectActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
@@ -82,6 +91,19 @@ class MainActivity : AppCompatActivity() {
                 true
             }
             else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun requestNotificationsPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!granted) {
+            notificationsPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 }

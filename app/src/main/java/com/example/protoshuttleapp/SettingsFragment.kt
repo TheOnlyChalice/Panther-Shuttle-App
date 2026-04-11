@@ -21,8 +21,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
     private lateinit var store: SettingStore
 
     private lateinit var unitsSwitch: SwitchMaterial
-    private lateinit var serviceAlertsSwitch: SwitchMaterial
-    private lateinit var stopApproachingSwitch: SwitchMaterial
+    private lateinit var notifyBeforeFavoriteStopsSwitch: SwitchMaterial
 
     private lateinit var addFavoriteBtn: MaterialButton
     private lateinit var favoritesRecycler: RecyclerView
@@ -42,8 +41,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         store = SettingStore(requireContext())
 
         unitsSwitch = view.findViewById(R.id.unitsSwitch)
-        serviceAlertsSwitch = view.findViewById(R.id.serviceAlertsSwitch)
-        stopApproachingSwitch = view.findViewById(R.id.stopApproachingSwitch)
+        notifyBeforeFavoriteStopsSwitch = view.findViewById(R.id.notifyBeforeFavoriteStopsSwitch)
 
         addFavoriteBtn = view.findViewById(R.id.addFavoriteStopButton)
         favoritesRecycler = view.findViewById(R.id.favoriteStopsRecycler)
@@ -64,20 +62,16 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
 
         unitsSwitch.isChecked = store.useMiles
         unitsSwitch.text = if (store.useMiles) "Miles" else "Km"
-        serviceAlertsSwitch.isChecked = store.serviceAlertsOn
-        stopApproachingSwitch.isChecked = store.stopApproachingOn
+
+        notifyBeforeFavoriteStopsSwitch.isChecked = store.notifyBeforeFavoriteStopsOn
 
         unitsSwitch.setOnCheckedChangeListener { _, isChecked ->
             store.useMiles = isChecked
             unitsSwitch.text = if (isChecked) "Miles" else "Km"
         }
 
-        serviceAlertsSwitch.setOnCheckedChangeListener { _, isChecked ->
-            store.serviceAlertsOn = isChecked
-        }
-
-        stopApproachingSwitch.setOnCheckedChangeListener { _, isChecked ->
-            store.stopApproachingOn = isChecked
+        notifyBeforeFavoriteStopsSwitch.setOnCheckedChangeListener { _, isChecked ->
+            store.notifyBeforeFavoriteStopsOn = isChecked
         }
 
         startFirebaseListeners()
@@ -205,6 +199,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         if (current.isEmpty()) return
 
         val replacements = mutableListOf<Pair<FavoriteStop, FavoriteStop>>()
+
         val updated = current.map { old ->
             val normalizedStop = if (old.stopName in availableStopNames) {
                 old.stopName
