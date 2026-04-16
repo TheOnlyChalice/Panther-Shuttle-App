@@ -215,11 +215,9 @@ class FirebaseRepo {
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .distinct()
-            .take(10)
             .ifEmpty { listOf("ALL") }
 
         return db.collection("driverMessages")
-            .whereArrayContainsAny("audience", tags)
             .orderBy("createdAt")
             .limitToLast(limit)
             .addSnapshotListener { snap, err ->
@@ -230,11 +228,18 @@ class FirebaseRepo {
 
                 if (snap == null) return@addSnapshotListener
 
-                val list = snap.toObjects(DriverMessageDoc::class.java)
                 val now = System.currentTimeMillis()
-                val active = list.filter { it.expiresAt <= 0L || it.expiresAt > now }
 
-                onUpdate(active.sortedByDescending { it.createdAt })
+                val filtered = snap.toObjects(DriverMessageDoc::class.java)
+                    .filter { msg ->
+                        msg.expiresAt <= 0L || msg.expiresAt > now
+                    }
+                    .filter { msg ->
+                        msg.audience.contains("ALL") || msg.audience.any { audience -> tags.contains(audience) }
+                    }
+                    .sortedByDescending { it.createdAt }
+
+                onUpdate(filtered)
             }
     }
 
