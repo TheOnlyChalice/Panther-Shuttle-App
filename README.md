@@ -70,3 +70,12 @@ This public repository does **not** include the real Firebase config file or a r
 ### 1. Clone the repository
 ```bash
 git clone <your-repo-url>
+
+### 2. Open in Android Studio
+
+### 3. Get a google API key and add it to the google_maps_api.xml file.
+
+### 4. Go to Firebase and get the .json file
+- Go to the Firebase Console
+- Create a Firebase project
+- Add an Android app to that project
