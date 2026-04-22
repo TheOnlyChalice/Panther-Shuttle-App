@@ -68,7 +68,6 @@ The app uses **Firebase** for authentication and cloud data storage and **Google
 This public repository does **not** include the real Firebase config file or a real Google Maps API key.
 
 ### 1. Clone the repository
-git clone <your-repo-url>
 
 ### 2. Open in Android Studio
 
